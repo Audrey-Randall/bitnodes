@@ -45,7 +45,7 @@ import time
 from base64 import b32decode
 from binascii import hexlify, unhexlify
 from collections import Counter
-from ConfigParser import ConfigParser
+from configparser import ConfigParser
 from geoip2.errors import AddressNotFoundError
 from ipaddress import ip_address, ip_network
 
@@ -187,7 +187,7 @@ def dump(timestamp, nodes):
 
     logging.info('Building JSON data')
     for node in nodes:
-        (address, port, services) = node[5:].split("-", 2)
+        (address, port, services) = node.decode('utf-8')[5:].split("-", 2)
         height_key = "height:{}-{}-{}".format(address, port, services)
         try:
             height = int(REDIS_CONN.get(height_key))
@@ -222,7 +222,7 @@ def restart(timestamp):
     redis_pipe.delete('up')
 
     for node in nodes:
-        (address, port, services) = node[5:].split("-", 2)
+        (address, port, services) = node.decode('utf-8')[5:].split("-", 2)
         redis_pipe.sadd('pending', (address, int(port), int(services)))
 
     for key in get_keys(REDIS_CONN, 'node:*'):
@@ -363,7 +363,7 @@ def is_excluded(address):
     """
     if address.endswith(".onion"):
         address = onion_to_ipv6(address)
-    elif ip_address(unicode(address)).is_private:
+    elif ip_address(str(address)).is_private:
         return True
 
     if ":" in address:
@@ -414,7 +414,7 @@ def list_excluded_networks(txt, networks=None):
     for line in lines:
         line = line.split('#')[0].strip()
         try:
-            network = ip_network(unicode(line))
+            network = ip_network(str(line))
         except ValueError:
             continue
         else:
@@ -438,7 +438,7 @@ def update_excluded_networks():
             else:
                 if response.status_code == 200:
                     CONF['exclude_ipv4_networks'] = list_excluded_networks(
-                        response.content,
+                        response.text,
                         networks=CONF['exclude_ipv4_networks'])
                     logging.info("IPv4: %d",
                                  len(CONF['exclude_ipv4_networks']))
@@ -455,7 +455,7 @@ def update_excluded_networks():
             else:
                 if response.status_code == 200:
                     CONF['exclude_ipv6_networks'] = list_excluded_networks(
-                        response.content,
+                        response.text,
                         networks=CONF['exclude_ipv6_networks'])
                     logging.info("IPv6: %d",
                                  len(CONF['exclude_ipv6_networks']))
@@ -538,7 +538,7 @@ def main(argv):
                         format=logformat,
                         filename=CONF['logfile'],
                         filemode='a')
-    print("Log: {}, press CTRL+C to terminate..".format(CONF['logfile']))
+    print(("Log: {}, press CTRL+C to terminate..".format(CONF['logfile'])))
 
     global REDIS_CONN
     REDIS_CONN = new_redis_conn(db=CONF['db'])
@@ -562,7 +562,7 @@ def main(argv):
     workers = []
     if CONF['master']:
         workers.append(gevent.spawn(cron))
-    for _ in xrange(CONF['workers'] - len(workers)):
+    for _ in range(CONF['workers'] - len(workers)):
         workers.append(gevent.spawn(task))
     logging.info("Workers: %d", len(workers))
     gevent.joinall(workers)
