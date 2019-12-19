@@ -34,6 +34,7 @@ monkey.patch_all()
 import geoip2.database
 import gevent
 import json
+import csv
 import logging
 import os
 import redis
@@ -48,7 +49,10 @@ from collections import Counter
 from configparser import ConfigParser
 from geoip2.errors import AddressNotFoundError
 from ipaddress import ip_address, ip_network
+<<<<<<< Updated upstream
 
+=======
+>>>>>>> Stashed changes
 from protocol import (
     ONION_PREFIX,
     TO_SERVICES,
@@ -57,22 +61,46 @@ from protocol import (
     ProtocolError,
 )
 from utils import new_redis_conn, get_keys, ip_to_network
+from repeated_timer import RepeatedTimer
 
 redis.connection.socket = gevent.socket
 
 REDIS_CONN = None
 CONF = {}
+NODES_PER_GETADDR = []
+NODES_INDEX = 1
+UP_SIZE = 0
+UP_NODES_PER_SEC = []
+UP_NODES_INDEX = 0
 
 # MaxMind databases
 ASN = geoip2.database.Reader("geoip/GeoLite2-ASN.mmdb")
 
 
-def enumerate_node(redis_pipe, addr_msgs, now):
+def up_diff():
+    global UP_SIZE
+    global UP_NODES_INDEX
+    up_card = REDIS_CONN.scard('up')
+    up = up_card - UP_SIZE
+    # logging.info(f"{up} new reachable nodes added")
+    UP_NODES_PER_SEC.append([UP_NODES_INDEX, up])
+    UP_NODES_INDEX += 10
+    UP_SIZE = up_card
+
+
+RT = RepeatedTimer(10, up_diff)
+
+
+def enumerate_node(redis_pipe, addr_msgs, parent_ip, now):
     """
     Adds all peering nodes with age <= max. age into the crawl set.
     """
+    global NODES_INDEX
     peers = 0
     excluded = 0
+
+    if len(addr_msgs) == 0:
+        return (peers, excluded)
 
     for addr_msg in addr_msgs:
         if 'addr_list' in addr_msg:
@@ -92,8 +120,11 @@ def enumerate_node(redis_pipe, addr_msgs, now):
                     redis_pipe.sadd('pending', (address, port, services))
                     peers += 1
                     if peers >= CONF['peers_per_node']:
+                        NODES_PER_GETADDR.append([NODES_INDEX, peers])
+                        NODES_INDEX += 1
                         return (peers, excluded)
-
+    NODES_PER_GETADDR.append([NODES_INDEX, peers])
+    NODES_INDEX += 1
     return (peers, excluded)
 
 
@@ -208,6 +239,39 @@ def dump(timestamp, nodes):
     return Counter([node[-1] for node in json_data]).most_common(1)[0][0]
 
 
+def dump_nodes_per_getaddr(timestamp):
+    """
+    Dumps the number of nodes potential nodes retrieved from the GETADDR
+    messages
+    """
+    global NODES_PER_GETADDR
+    global NODES_INDEX
+    logging.info('Building nodes per GETADDR data')
+    output = os.path.join(CONF['crawl_dir'], f"nodes_per_getADDR_{timestamp}.csv")
+    with open(output, "w", newline='') as f:
+        writer = csv.writer(f)
+        writer.writerows(NODES_PER_GETADDR)
+    logging.info(f"Wrote {output}")
+    NODES_INDEX = 1
+    NODES_PER_GETADDR = []
+
+
+def dump_upnodes_per_second(timestamp):
+    """
+    Dumps the number of up nodes crawled per second
+    """
+    global UP_NODES_PER_SEC
+    global UP_SIZE
+    logging.info('Building up nodes per second data')
+    output = os.path.join(CONF['crawl_dir'], f"up_nodes_per_seconds{timestamp}.csv")
+    with open(output, "w", newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(UP_NODES_PER_SEC)
+    logging.info(f"Wrote {output}")
+    UP_SIZE = 0
+    UP_NODES_PER_SEC = []
+
+
 def restart(timestamp):
     """
     Dumps data for the reachable nodes into a JSON file.
@@ -249,9 +313,13 @@ def restart(timestamp):
     logging.info("Reachable nodes: %d", reachable_nodes)
     REDIS_CONN.lpush('nodes', (timestamp, reachable_nodes))
 
+    RT.stop()
+    dump_upnodes_per_second(timestamp)
+    dump_nodes_per_getaddr(timestamp)
     height = dump(timestamp, nodes)
     REDIS_CONN.set('height', height)
     logging.info("Height: %d", height)
+    RT.start()
 
 
 def cron():
@@ -261,6 +329,7 @@ def cron():
     1) Reports the current number of nodes in crawl set
     2) Initiates a new crawl once the crawl set is empty
     """
+    RT.start()
     start = int(time.time())
 
     while True:
@@ -307,7 +376,11 @@ def task():
             continue
 
         key = "node:{}-{}-{}".format(node[0], node[1], node[2])
-        if redis_conn.exists(key):
+        if REDIS_CONN.exists(key):
+            if CONF['keep_duplication']:
+                node_with_parent = "node:{}-{}-{}-{}".format(node[0], node[1], node[2],
+                                                             node[3])
+                REDIS_CONN.sadd('up', node_with_parent)
             continue
 
         # Check if prefix has hit its limit
@@ -517,6 +590,7 @@ def init_conf(argv):
 
     # Set to True for master process
     CONF['master'] = argv[2] == "master"
+    CONF['keep_duplication'] = conf.get('crawl', 'keep_duplication')
 
 
 def main(argv):
@@ -568,6 +642,13 @@ def main(argv):
     gevent.joinall(workers)
 
     return 0
+
+
+def sigterm_handler(signal, frame):
+    # save the state here or do whatever you want
+    RT.stop()
+    print('Exit')
+    sys.exit(0)
 
 
 if __name__ == '__main__':
