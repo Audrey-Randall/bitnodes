@@ -49,10 +49,8 @@ from collections import Counter
 from configparser import ConfigParser
 from geoip2.errors import AddressNotFoundError
 from ipaddress import ip_address, ip_network
-<<<<<<< Updated upstream
 
-=======
->>>>>>> Stashed changes
+
 from protocol import (
     ONION_PREFIX,
     TO_SERVICES,
