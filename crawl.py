@@ -50,6 +50,7 @@ from configparser import ConfigParser
 from geoip2.errors import AddressNotFoundError
 from ipaddress import ip_address, ip_network
 from collections import defaultdict
+from datetime import datetime, timezone
 
 
 from protocol import (
@@ -203,7 +204,7 @@ def connect(redis_conn, key):
     redis_pipe.execute()
 
 
-def dump(timestamp, nodes):
+def dump(date, nodes):
     """
     Dumps data for reachable nodes into timestamp-prefixed JSON file and
     returns most common height from the nodes.
@@ -226,21 +227,21 @@ def dump(timestamp, nodes):
         logging.warning("len(json_data): %d", len(json_data))
         return 0
 
-    json_output = os.path.join(CONF['crawl_dir'], "{}.json".format(timestamp))
+    json_output = os.path.join(CONF['crawl_dir'], f"{date}.json")
     open(json_output, 'w').write(json.dumps(json_data))
     logging.info("Wrote %s", json_output)
 
     return Counter([node[-1] for node in json_data]).most_common(1)[0][0]
 
 
-def dump_nodes_per_getaddr(timestamp):
+def dump_nodes_per_getaddr(date):
     """
     Dumps the number of nodes potential nodes retrieved from the GETADDR
     messages
     """
     global NODES_PER_GETADDR
     logging.info('Building nodes per GETADDR data')
-    output = os.path.join(CONF['crawl_dir'], f"nodes_per_getADDR_{timestamp}.csv")
+    output = os.path.join(CONF['crawl_dir'], f"nodes_per_getADDR_{date}.csv")
     with open(output, "w", newline='') as f:
         writer = csv.writer(f)
         for i, (k, v) in enumerate(NODES_PER_GETADDR.items()):
@@ -249,14 +250,14 @@ def dump_nodes_per_getaddr(timestamp):
     NODES_PER_GETADDR = defaultdict(list)
 
 
-def dump_upnodes_per_second(timestamp):
+def dump_upnodes_per_second(date):
     """
     Dumps the number of up nodes crawled per second
     """
     global UP_NODES_PER_SEC
     global UP_SIZE
     logging.info('Building up nodes per second data')
-    output = os.path.join(CONF['crawl_dir'], f"up_nodes_per_seconds{timestamp}.csv")
+    output = os.path.join(CONF['crawl_dir'], f"up_nodes_per_seconds_{date}.csv")
     with open(output, "w", newline='') as f:
         writer = csv.writer(f)
         writer.writerow(UP_NODES_PER_SEC)
@@ -307,9 +308,11 @@ def restart(timestamp):
     REDIS_CONN.lpush('nodes', (timestamp, reachable_nodes))
 
     RT.stop()
-    dump_upnodes_per_second(timestamp)
-    dump_nodes_per_getaddr(timestamp)
-    height = dump(timestamp, nodes)
+    date = datetime.utcfromtimestamp(timestamp).replace(tzinfo=timezone.utc).\
+        astimezone(tz=None).strftime('%Y%m%d-%H:%M:%S')
+    dump_upnodes_per_second(date)
+    dump_nodes_per_getaddr(date)
+    height = dump(date, nodes)
     REDIS_CONN.set('height', height)
     logging.info("Height: %d", height)
     RT.start()
