@@ -588,7 +588,7 @@ def init_conf(argv):
 
     # Set to True for master process
     CONF['master'] = argv[2] == "master"
-    CONF['keep_duplication'] = conf.get('crawl', 'keep_duplication')
+    CONF['keep_duplication'] = conf.getboolean('crawl', 'keep_duplication')
 
 
 def main(argv):
