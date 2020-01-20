@@ -49,6 +49,7 @@ from collections import Counter
 from configparser import ConfigParser
 from geoip2.errors import AddressNotFoundError
 from ipaddress import ip_address, ip_network
+from collections import defaultdict
 
 
 from protocol import (
@@ -65,8 +66,7 @@ redis.connection.socket = gevent.socket
 
 REDIS_CONN = None
 CONF = {}
-NODES_PER_GETADDR = []
-NODES_INDEX = 1
+NODES_PER_GETADDR = defaultdict(list)
 UP_SIZE = 0
 UP_NODES_PER_SEC = []
 UP_NODES_INDEX = 0
@@ -89,11 +89,10 @@ def up_diff():
 RT = RepeatedTimer(10, up_diff)
 
 
-def enumerate_node(redis_pipe, addr_msgs, parent_ip, now):
+def enumerate_node(redis_pipe, addr_msgs, now):
     """
     Adds all peering nodes with age <= max. age into the crawl set.
     """
-    global NODES_INDEX
     peers = 0
     excluded = 0
 
@@ -118,11 +117,7 @@ def enumerate_node(redis_pipe, addr_msgs, parent_ip, now):
                     redis_pipe.sadd('pending', (address, port, services))
                     peers += 1
                     if peers >= CONF['peers_per_node']:
-                        NODES_PER_GETADDR.append([NODES_INDEX, peers])
-                        NODES_INDEX += 1
                         return (peers, excluded)
-    NODES_PER_GETADDR.append([NODES_INDEX, peers])
-    NODES_INDEX += 1
     return (peers, excluded)
 
 
@@ -199,6 +194,7 @@ def connect(redis_conn, key):
                          version_msg.get('height', 0))
         now = int(time.time())
         (peers, excluded) = enumerate_node(redis_pipe, addr_msgs, now)
+        NODES_PER_GETADDR[key].append(peers)
         logging.debug("%s Peers: %d (Excluded: %d)",
                       conn.to_addr, peers, excluded)
         redis_pipe.set(key, "")
@@ -243,15 +239,14 @@ def dump_nodes_per_getaddr(timestamp):
     messages
     """
     global NODES_PER_GETADDR
-    global NODES_INDEX
     logging.info('Building nodes per GETADDR data')
     output = os.path.join(CONF['crawl_dir'], f"nodes_per_getADDR_{timestamp}.csv")
     with open(output, "w", newline='') as f:
         writer = csv.writer(f)
-        writer.writerows(NODES_PER_GETADDR)
+        for i, (k, v) in enumerate(NODES_PER_GETADDR.items()):
+            writer.writerow([i+1, k, *v])
     logging.info(f"Wrote {output}")
-    NODES_INDEX = 1
-    NODES_PER_GETADDR = []
+    NODES_PER_GETADDR = defaultdict(list)
 
 
 def dump_upnodes_per_second(timestamp):
