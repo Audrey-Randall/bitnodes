@@ -43,6 +43,7 @@ import requests
 import socket
 import sys
 import time
+import statistics
 from base64 import b32decode
 from binascii import hexlify, unhexlify
 from collections import Counter
@@ -83,11 +84,11 @@ def up_diff():
     up = up_card - UP_SIZE
     # logging.info(f"{up} new reachable nodes added")
     UP_NODES_PER_SEC.append([UP_NODES_INDEX, up])
-    UP_NODES_INDEX += 10
+    UP_NODES_INDEX += 5
     UP_SIZE = up_card
 
 
-RT = RepeatedTimer(10, up_diff)
+RT = RepeatedTimer(5, up_diff)
 
 
 def enumerate_node(redis_pipe, addr_msgs, now):
@@ -98,7 +99,7 @@ def enumerate_node(redis_pipe, addr_msgs, now):
     excluded = 0
 
     if len(addr_msgs) == 0:
-        return (peers, excluded)
+        return (-1, excluded)
 
     for addr_msg in addr_msgs:
         if 'addr_list' in addr_msg:
@@ -245,7 +246,7 @@ def dump_nodes_per_getaddr(date):
     with open(output, "w", newline='') as f:
         writer = csv.writer(f)
         for i, (k, v) in enumerate(NODES_PER_GETADDR.items()):
-            writer.writerow([i+1, k, *v])
+            writer.writerow([i+1, k, round(statistics.mean(v)), *v])
     logging.info(f"Wrote {output}")
     NODES_PER_GETADDR = defaultdict(list)
 
@@ -256,14 +257,16 @@ def dump_upnodes_per_second(date):
     """
     global UP_NODES_PER_SEC
     global UP_SIZE
+    global UP_NODES_INDEX
     logging.info('Building up nodes per second data')
     output = os.path.join(CONF['crawl_dir'], f"up_nodes_per_seconds_{date}.csv")
     with open(output, "w", newline='') as f:
         writer = csv.writer(f)
-        writer.writerow(UP_NODES_PER_SEC)
+        writer.writerows(UP_NODES_PER_SEC)
     logging.info(f"Wrote {output}")
     UP_SIZE = 0
     UP_NODES_PER_SEC = []
+    UP_NODES_INDEX = 0
 
 
 def restart(timestamp):
