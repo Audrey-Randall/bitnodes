@@ -44,7 +44,7 @@ import socket
 import sys
 import time
 from binascii import hexlify, unhexlify
-from ConfigParser import ConfigParser
+from configparser import ConfigParser
 
 from protocol import ProtocolError, ConnectionError, Connection
 from utils import new_redis_conn, get_keys, ip_to_network
@@ -269,7 +269,7 @@ def cron(pool):
     [Master/Slave]
     1) Spawns workers to establish and maintain connection with reachable nodes
     """
-    publish_key = 'snapshot:{}'.format(hexlify(CONF['magic_number']))
+    publish_key = 'snapshot:{}'.format(hexlify(CONF['magic_number']).decode("utf-8"))
     snapshot = None
 
     while True:
@@ -298,7 +298,7 @@ def cron(pool):
 
             set_bestblockhash()
 
-        for _ in xrange(min(REDIS_CONN.scard('reachable'), pool.free_count())):
+        for _ in range(min(REDIS_CONN.scard('reachable'), pool.free_count())):
             pool.spawn(task)
 
         workers = CONF['workers'] - pool.free_count()

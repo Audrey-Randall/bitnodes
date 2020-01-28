@@ -187,7 +187,7 @@ def dump(timestamp, nodes):
 
     logging.info('Building JSON data')
     for node in nodes:
-        (address, port, services) = node.decode('utf-8')[5:].split("-", 2)
+        (address, port, services) = node[5:].split("-", 2)
         height_key = "height:{}-{}-{}".format(address, port, services)
         try:
             height = int(REDIS_CONN.get(height_key))
@@ -222,7 +222,7 @@ def restart(timestamp):
     redis_pipe.delete('up')
 
     for node in nodes:
-        (address, port, services) = node.decode('utf-8')[5:].split("-", 2)
+        (address, port, services) = node[5:].split("-", 2)
         redis_pipe.sadd('pending', (address, int(port), int(services)))
 
     for key in get_keys(REDIS_CONN, 'node:*'):

@@ -34,7 +34,7 @@ import os
 import sys
 import time
 from binascii import hexlify, unhexlify
-from ConfigParser import ConfigParser
+from configparser import ConfigParser
 
 from utils import new_redis_conn
 
@@ -86,7 +86,7 @@ def export_nodes(nodes, timestamp):
     logging.info("Elapsed: %d", elapsed)
 
     dump = os.path.join(CONF['export_dir'], "{}.json".format(timestamp))
-    open(dump, 'w').write(json.dumps(rows, encoding="latin-1"))
+    open(dump, 'w').write(json.dumps(rows))
     logging.info("Wrote %s", dump)
 
 
@@ -129,8 +129,8 @@ def main(argv):
     global REDIS_CONN
     REDIS_CONN = new_redis_conn(db=CONF['db'])
 
-    subscribe_key = 'resolve:{}'.format(hexlify(CONF['magic_number']))
-    publish_key = 'export:{}'.format(hexlify(CONF['magic_number']))
+    subscribe_key = 'resolve:{}'.format(hexlify(CONF['magic_number']).decode("utf-8"))
+    publish_key = 'export:{}'.format(hexlify(CONF['magic_number']).decode("utf-8"))
 
     pubsub = REDIS_CONN.pubsub()
     pubsub.subscribe(subscribe_key)

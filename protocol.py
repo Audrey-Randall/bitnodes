@@ -741,7 +741,7 @@ class Serializer(object):
 
     def deserialize_string(self, data):
         length = self.deserialize_int(data)
-        return data.read(length).encode('latin1')
+        return data.read(length)
 
     def serialize_int(self, length):
         if length < 0xFD:
