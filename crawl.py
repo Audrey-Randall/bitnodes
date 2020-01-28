@@ -95,6 +95,7 @@ def enumerate_node(redis_pipe, addr_msgs, now):
     """
     Adds all peering nodes with age <= max. age into the crawl set.
     """
+    global NODES_INDEX
     peers = 0
     excluded = 0
 
@@ -119,6 +120,8 @@ def enumerate_node(redis_pipe, addr_msgs, now):
                     redis_pipe.sadd('pending', (address, port, services))
                     peers += 1
                     if peers >= CONF['peers_per_node']:
+                        NODES_PER_GETADDR.append([NODES_INDEX, peers])
+                        NODES_INDEX += 1
                         return (peers, excluded)
     return (peers, excluded)
 
