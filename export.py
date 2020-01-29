@@ -35,6 +35,7 @@ import sys
 import time
 from binascii import hexlify, unhexlify
 from configparser import ConfigParser
+from datetime import datetime, timezone
 
 from utils import new_redis_conn
 
@@ -71,10 +72,10 @@ def get_row(node):
     return node + height + hostname + geoip
 
 
-def export_nodes(nodes, timestamp):
+def export_nodes(nodes, date):
     """
     Merges enumerated data for the specified nodes and exports them into
-    timestamp-prefixed JSON file.
+    date-prefixed JSON file.
     """
     rows = []
     start = time.time()
@@ -85,7 +86,7 @@ def export_nodes(nodes, timestamp):
     elapsed = end - start
     logging.info("Elapsed: %d", elapsed)
 
-    dump = os.path.join(CONF['export_dir'], "{}.json".format(timestamp))
+    dump = os.path.join(CONF['export_dir'], "{}.json".format(date))
     open(dump, 'w').write(json.dumps(rows))
     logging.info("Wrote %s", dump)
 
@@ -143,7 +144,9 @@ def main(argv):
         # and GeoIP data for all reachable nodes.
         if msg['channel'] == subscribe_key and msg['type'] == 'message':
             timestamp = int(msg['data'])  # From ping.py's 'snapshot' message
-            logging.info("Timestamp: %d", timestamp)
+            date = datetime.utcfromtimestamp(timestamp).replace(tzinfo=timezone.utc).\
+                astimezone(tz=None).strftime('%Y%m%d-%H:%M:%S')
+            logging.info("Timestamp: %d", date)
             nodes = REDIS_CONN.smembers('opendata')
             logging.info("Nodes: %d", len(nodes))
             export_nodes(nodes, timestamp)

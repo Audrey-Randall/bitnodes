@@ -321,7 +321,6 @@ def restart(timestamp):
     height = dump(date, nodes)
     REDIS_CONN.set('height', height)
     logging.info("Height: %d", height)
-    RT.start()
 
 
 def cron():
@@ -340,6 +339,7 @@ def cron():
 
         if pending_nodes == 0:
             REDIS_CONN.set('crawl:master:state', "starting")
+            gevent.sleep(30)  # gives workers some time to finish their jobs
             now = int(time.time())
             elapsed = now - start
             REDIS_CONN.set('elapsed', elapsed)
@@ -348,6 +348,7 @@ def cron():
             restart(now)
             while int(time.time()) - start < CONF['snapshot_delay']:
                 gevent.sleep(1)
+            RT.start()
             start = int(time.time())
             REDIS_CONN.set('crawl:master:state', "running")
 
@@ -362,9 +363,8 @@ def task():
     redis_conn = new_redis_conn(db=CONF['db'])
 
     while True:
-        if not CONF['master']:
-            while REDIS_CONN.get('crawl:master:state') != "running":
-                gevent.sleep(CONF['socket_timeout'])
+        while REDIS_CONN.get('crawl:master:state') != "running":
+            gevent.sleep(CONF['socket_timeout'])
 
         node = redis_conn.spop('pending')  # Pop random node from set
         if node is None:
