@@ -1,15 +1,14 @@
 import seaborn as sns
 import pandas as pd
 import sys
+import os
 import matplotlib.pyplot as plt
 from collections import defaultdict
 
 
-def main(argv):
-    sns.set()
-
+def addr_per_node(csv_file: str):
     ############################### ADDR response ###############################
-    data = pd.read_csv(argv[1], names=["node_index", "node", "number of ADDR returned"], usecols=[0, 1, 2])
+    data = pd.read_csv(csv_file, names=["node_index", "node", "number of ADDR returned"], usecols=[0, 1, 2])
     print(data.values[2])
     i = 0
     j = 0
@@ -30,6 +29,9 @@ def main(argv):
     ax.set(xlabel='node index', ylabel='number of ADDR')
 
 
+
+
+def up_nodes_per_sec(csv_files: list):
     ############################## UP_NODES ##############################
 
     ########### old version ###########
@@ -53,8 +55,21 @@ def main(argv):
     # ax = sns.lineplot(x="timeline", y="up nodes", data=data)
     # ax.set(xlabel='time (s)', ylabel='number of nodes')
 
+    # plt.show()
+
+    data = pd.read_csv(csv_files[0], names=["timeline", os.path.splitext(csv_files[0])[0].split('_')[-1]])
+    for csv_file in csv_files[1:]:
+        data_to_add = pd.read_csv(csv_file, names=["timeline", os.path.splitext(csv_file)[0].split('_')[-1]])
+        data = pd.merge(data, data_to_add, how='outer')
+    data = pd.melt(data, ['timeline'], var_name='date of crawl', value_name='up nodes')
+    ax = sns.lineplot(x="timeline", y="up nodes", hue="date of crawl", data=data)
+    ax.set(xlabel='time (s)', ylabel='number of nodes')
     plt.show()
 
+
+def main(argv):
+    sns.set()
+    up_nodes_per_sec(argv[1:])
 
 if __name__ == "__main__":
     main(sys.argv)
