@@ -44,6 +44,7 @@ import socket
 import sys
 import time
 import statistics
+import pickle
 from base64 import b32decode
 from binascii import hexlify, unhexlify
 from collections import Counter
@@ -67,6 +68,7 @@ from repeated_timer import RepeatedTimer
 redis.connection.socket = gevent.socket
 
 REDIS_CONN = None
+REDIS_CONN_NO_DECODE = None
 CONF = {}
 NODES_PER_GETADDR = defaultdict(list)
 UP_SIZE = 0
@@ -120,8 +122,6 @@ def enumerate_node(redis_pipe, addr_msgs, now):
                     redis_pipe.sadd('pending', (address, port, services))
                     peers += 1
                     if peers >= CONF['peers_per_node']:
-                        NODES_PER_GETADDR.append([NODES_INDEX, peers])
-                        NODES_INDEX += 1
                         return (peers, excluded)
     return (peers, excluded)
 
@@ -199,7 +199,8 @@ def connect(redis_conn, key):
                          version_msg.get('height', 0))
         now = int(time.time())
         (peers, excluded) = enumerate_node(redis_pipe, addr_msgs, now)
-        NODES_PER_GETADDR[key].append(peers)
+        REDIS_CONN_NO_DECODE.rpush("nodes_per_getaddr", pickle.dumps((key[5:], peers)))
+        NODES_PER_GETADDR[key[5:]].append(peers)
         logging.debug("%s Peers: %d (Excluded: %d)",
                       conn.to_addr, peers, excluded)
         redis_pipe.set(key, "")
@@ -243,15 +244,17 @@ def dump_nodes_per_getaddr(date):
     Dumps the number of nodes potential nodes retrieved from the GETADDR
     messages
     """
-    global NODES_PER_GETADDR
-    logging.info('Building nodes per GETADDR data')
     output = os.path.join(CONF['crawl_dir'], f"nodes_per_getADDR_{date}.csv")
+    nodes_per_getaddr = defaultdict(list)
+    nodes = REDIS_CONN_NO_DECODE.lrange("nodes_per_getaddr", 0, -1)
+    for nodes_addr_number in nodes:
+        node, addr_number = pickle.loads(nodes_addr_number)
+        nodes_per_getaddr[node].append(addr_number)
     with open(output, "w", newline='') as f:
         writer = csv.writer(f)
-        for i, (k, v) in enumerate(NODES_PER_GETADDR.items()):
-            writer.writerow([i+1, k, round(statistics.mean(v)), *v])
+        for i, (k, v) in enumerate(nodes_per_getaddr.items()):
+            writer.writerow([i+1, k, max(v), round(statistics.mean(v)), *v])
     logging.info(f"Wrote {output}")
-    NODES_PER_GETADDR = defaultdict(list)
 
 
 def dump_upnodes_per_second(date):
@@ -618,6 +621,8 @@ def main(argv):
 
     global REDIS_CONN
     REDIS_CONN = new_redis_conn(db=CONF['db'])
+    global REDIS_CONN_NO_DECODE
+    REDIS_CONN_NO_DECODE = new_redis_conn(db=CONF['db'], decode=False)
 
     if CONF['master']:
         REDIS_CONN.set('crawl:master:state', "starting")
