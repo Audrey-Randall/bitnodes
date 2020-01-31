@@ -149,7 +149,7 @@ def main(argv):
             logging.info("Timestamp: %d", date)
             nodes = REDIS_CONN.smembers('opendata')
             logging.info("Nodes: %d", len(nodes))
-            export_nodes(nodes, timestamp)
+            export_nodes(nodes, date)
             REDIS_CONN.publish(publish_key, timestamp)
 
     return 0
