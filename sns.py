@@ -3,11 +3,10 @@ import pandas as pd
 import sys
 import os
 import matplotlib.pyplot as plt
-from collections import defaultdict
 
 
 def addr_per_node(csv_file: str):
-    ############################### ADDR response ###############################
+    # colone index, noeud, max ADDR returned
     data = pd.read_csv(csv_file, names=["node_index", "node", "number of ADDR returned"], usecols=[0, 1, 2])
     print(data.values[2])
     i = 0
@@ -17,24 +16,19 @@ def addr_per_node(csv_file: str):
         j += 1 if elt[2] == 0 else 0
 
     print(i, j)
-    ############ old version #############
+    # old version
     # child_nodes number distplot
     # d = [n[2] for n in data.values]
     # d = pd.Series(d, name="number of connections")
     # sns.distplot(d)
 
-
-    ########### new version ###########
     ax = sns.relplot(x="node_index", y="number of ADDR returned", edgecolor='none', data=data)
     ax.set(xlabel='node index', ylabel='number of ADDR')
-
-
+    plt.show()
 
 
 def up_nodes_per_sec(csv_files: list):
-    ############################## UP_NODES ##############################
-
-    ########### old version ###########
+    # old version
 
     # d = defaultdict(list)
 
@@ -47,7 +41,7 @@ def up_nodes_per_sec(csv_files: list):
     # df = pd.DataFrame(data=d)
     # sns.lineplot(x="timeline", y="up nodes", data=df)
 
-    ########### new version ###########
+    # new version (old now)
 
     # data = pd.read_csv(argv[1], names=["timeline", "up nodes"])
     # # print(data.values)
@@ -69,7 +63,9 @@ def up_nodes_per_sec(csv_files: list):
 
 def main(argv):
     sns.set()
-    up_nodes_per_sec(argv[1:])
+    # up_nodes_per_sec(argv[1:])
+    addr_per_node(argv[1])
+
 
 if __name__ == "__main__":
     main(sys.argv)
