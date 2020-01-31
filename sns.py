@@ -2,27 +2,44 @@ import seaborn as sns
 import pandas as pd
 import sys
 import os
+import json
 import matplotlib.pyplot as plt
 
 
-def addr_per_node(csv_file: str):
+def addr_per_node(csv_file: str, export_json_file: str):
     # colone index, noeud, max ADDR returned
     data = pd.read_csv(csv_file, names=["node_index", "node", "number of ADDR returned"], usecols=[0, 1, 2])
-    print(data.values[2])
     i = 0
     j = 0
-    for elt in data.values:
-        i += 1 if elt[2] == -1 else 0
-        j += 1 if elt[2] == 0 else 0
+    for node in data.values:
+        i += 1 if node[2] == -1 else 0
+        j += 1 if node[2] == 0 else 0
+    print(f"In crawl csv file, number of -1 : {i}, 0 : {j}")
 
-    print(i, j)
-    # old version
-    # child_nodes number distplot
-    # d = [n[2] for n in data.values]
-    # d = pd.Series(d, name="number of connections")
-    # sns.distplot(d)
+    with open(export_json_file, 'r') as f:
+        data_json = json.load(f)
+    rows_list = []
+    for crawl_node in data.values:
+        for exported_node in data_json:
+            if crawl_node[1] == f"{exported_node[0]}-{exported_node[1]}-{exported_node[5]}":
+                rows_list.append(pd.DataFrame([crawl_node], columns=["node_index","node","number of ADDR returned"]))
+                break
+    print("finished")
+    df = pd.concat(rows_list, ignore_index=True)
+    print("refinished")
 
-    ax = sns.relplot(x="node_index", y="number of ADDR returned", edgecolor='none', data=data)
+    i = 0
+    j = 0
+    for node in df.values:
+        i += 1 if node[2] == -1 else 0
+        j += 1 if node[2] == 0 else 0
+    print(f"In export json file, number of -1 : {i}, 0 : {j}")
+
+    # ax = sns.relplot(x=data.index, y="number of ADDR returned", edgecolor='none', data=data)
+    # ax.set(xlabel='node index', ylabel='number of ADDR')
+    # plt.show()
+
+    ax = sns.relplot(x=df.index, y="number of ADDR returned", edgecolor='none', data=df)
     ax.set(xlabel='node index', ylabel='number of ADDR')
     plt.show()
 
@@ -64,7 +81,7 @@ def up_nodes_per_sec(csv_files: list):
 def main(argv):
     sns.set()
     # up_nodes_per_sec(argv[1:])
-    addr_per_node(argv[1])
+    addr_per_node(argv[1], argv[2])
 
 
 if __name__ == "__main__":

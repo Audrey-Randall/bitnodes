@@ -325,6 +325,7 @@ def get_nodes(path):
     Returns all reachable nodes from a JSON file.
     """
     nodes = []
+    logging.info(f"Opening {path}")
     text = open(path, 'r').read()
     try:
         nodes = json.loads(text)
