@@ -199,7 +199,7 @@ def connect(redis_conn, key):
                          version_msg.get('height', 0))
         now = int(time.time())
         (peers, excluded) = enumerate_node(redis_pipe, addr_msgs, now)
-        REDIS_CONN_NO_DECODE.rpush("nodes_per_getaddr", pickle.dumps((key[5:], peers)))
+        REDIS_CONN_NO_DECODE.rpush('nodes_per_getaddr', pickle.dumps((key[5:], peers)))
         NODES_PER_GETADDR[key[5:]].append(peers)
         logging.debug("%s Peers: %d (Excluded: %d)",
                       conn.to_addr, peers, excluded)
@@ -239,14 +239,13 @@ def dump(date, nodes):
     return Counter([node[-1] for node in json_data]).most_common(1)[0][0]
 
 
-def dump_nodes_per_getaddr(date):
+def dump_nodes_per_getaddr(nodes, date):
     """
     Dumps the number of nodes potential nodes retrieved from the GETADDR
     messages
     """
-    output = os.path.join(CONF['crawl_dir'], f"nodes_per_getADDR_{date}.csv")
+    output = os.path.join(CONF['crawl_dir'], f'nodes_per_getADDR_{date}.csv')
     nodes_per_getaddr = defaultdict(list)
-    nodes = REDIS_CONN_NO_DECODE.lrange("nodes_per_getaddr", 0, -1)
     for nodes_addr_number in nodes:
         node, addr_number = pickle.loads(nodes_addr_number)
         nodes_per_getaddr[node].append(addr_number)
@@ -286,7 +285,9 @@ def restart(timestamp):
     redis_pipe = REDIS_CONN.pipeline()
 
     nodes = REDIS_CONN.smembers('up')  # Reachable nodes
+    nodes_per_getaddr = REDIS_CONN_NO_DECODE.lrange('nodes_per_getaddr', 0, -1)
     redis_pipe.delete('up')
+    redis_pipe.delete('nodes_per_getaddr')
 
     for node in nodes:
         (address, port, services) = node[5:].split("-", 2)
@@ -320,7 +321,7 @@ def restart(timestamp):
     date = datetime.utcfromtimestamp(timestamp).replace(tzinfo=timezone.utc).\
         astimezone(tz=None).strftime('%Y%m%d-%H:%M:%S')
     dump_upnodes_per_second(date)
-    dump_nodes_per_getaddr(date)
+    dump_nodes_per_getaddr(nodes_per_getaddr, date)
     height = dump(date, nodes)
     REDIS_CONN.set('height', height)
     logging.info("Height: %d", height)
