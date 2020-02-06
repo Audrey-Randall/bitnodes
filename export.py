@@ -146,7 +146,7 @@ def main(argv):
             timestamp = int(msg['data'])  # From ping.py's 'snapshot' message
             date = datetime.utcfromtimestamp(timestamp).replace(tzinfo=timezone.utc).\
                 astimezone(tz=None).strftime('%Y%m%d-%H:%M:%S')
-            logging.info("Timestamp: %d", date)
+            logging.info("Date: %s", date)
             nodes = REDIS_CONN.smembers('opendata')
             logging.info("Nodes: %d", len(nodes))
             export_nodes(nodes, date)
