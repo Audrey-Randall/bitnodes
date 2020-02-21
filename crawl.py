@@ -139,7 +139,7 @@ def connect(redis_conn, key):
     addr_msgs = []
 
     redis_conn.set(key, "")  # Set Redis key for a new node
-
+    redis_conn.sadd('all_nodes', key)
     (address, port, services) = key[5:].split("-", 2)
     services = int(services)
     height = redis_conn.get('height')
@@ -285,8 +285,10 @@ def restart(timestamp):
     redis_pipe = REDIS_CONN.pipeline()
 
     nodes = REDIS_CONN.smembers('up')  # Reachable nodes
+    all_nodes = REDIS_CONN.scard('all_nodes')
     nodes_per_getaddr = REDIS_CONN_NO_DECODE.lrange('nodes_per_getaddr', 0, -1)
     redis_pipe.delete('up')
+    redis_pipe.delete('all_nodes')
     redis_pipe.delete('nodes_per_getaddr')
 
     for node in nodes:
@@ -315,6 +317,7 @@ def restart(timestamp):
 
     reachable_nodes = len(nodes)
     logging.info("Reachable nodes: %d", reachable_nodes)
+    logging.info(f"All nodes (not only reachable): {all_nodes}")
     REDIS_CONN.lpush('nodes', (timestamp, reachable_nodes))
 
     RT.stop()
@@ -630,6 +633,7 @@ def main(argv):
         logging.info("Removing all keys")
         redis_pipe = REDIS_CONN.pipeline()
         redis_pipe.delete('up')
+        redis_pipe.delete('all_nodes')
         for key in get_keys(REDIS_CONN, 'node:*'):
             redis_pipe.delete(key)
         for key in get_keys(REDIS_CONN, 'crawl:cidr:*'):
