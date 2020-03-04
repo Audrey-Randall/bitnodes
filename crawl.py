@@ -120,6 +120,7 @@ def enumerate_node(redis_pipe, addr_msgs, now):
                         excluded += 1
                         continue
                     redis_pipe.sadd('pending', (address, port, services))
+                    redis_pipe.sadd('all_nodes_bis', f'node:{address}-{port}-{services}')
                     peers += 1
                     if peers >= CONF['peers_per_node']:
                         return (peers, excluded)
@@ -286,9 +287,11 @@ def restart(timestamp):
 
     nodes = REDIS_CONN.smembers('up')  # Reachable nodes
     all_nodes = REDIS_CONN.scard('all_nodes')
+    all_nodes_bis = REDIS_CONN.scard('all_nodes_bis')
     nodes_per_getaddr = REDIS_CONN_NO_DECODE.lrange('nodes_per_getaddr', 0, -1)
     redis_pipe.delete('up')
     redis_pipe.delete('all_nodes')
+    redis_pipe.delete('all_nodes_bis')
     redis_pipe.delete('nodes_per_getaddr')
 
     for node in nodes:
@@ -318,6 +321,7 @@ def restart(timestamp):
     reachable_nodes = len(nodes)
     logging.info("Reachable nodes: %d", reachable_nodes)
     logging.info(f"All nodes (not only reachable): {all_nodes}")
+    logging.info(f"All nodes with IPv6 (not only reachable): {all_nodes_bis}")
     REDIS_CONN.lpush('nodes', (timestamp, reachable_nodes))
 
     RT.stop()
@@ -648,8 +652,9 @@ def main(argv):
     workers = []
     if CONF['master']:
         workers.append(gevent.spawn(cron))
-    for _ in range(CONF['workers'] - len(workers)):
-        workers.append(gevent.spawn(task))
+    else:
+        for _ in range(CONF['workers'] - len(workers)):
+            workers.append(gevent.spawn(task))
     logging.info("Workers: %d", len(workers))
     gevent.joinall(workers)
 
