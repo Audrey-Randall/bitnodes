@@ -17,8 +17,10 @@ from timeit import default_timer as timer
 
 def geo_distribution_per_hour(json_dir: str):
     europe = (-25., 45.)
-    america = (-135., -25.0001)
-    asia = (45.0001, 155.)
+    america = (-142, -25.0001)
+    alaska = (-170., -142.0001, 45., 75.)
+    hawai = (-170., -150, 15., 30.)
+    asia = (45.0001, 180.)
     # other1 = (155.0001, 180.)
     # other2 = (-179.9999, -135.0001)
     result = {}
@@ -33,16 +35,23 @@ def geo_distribution_per_hour(json_dir: str):
             nodes = json.load(f)
         for node_info in nodes:
             longitude = float(node_info[11])
+            latitude = float(node_info[10])
             if europe[0] <= longitude <= europe[1]:
-                cnt['europe'] += 1
+                cnt['Europe / Africa / Middle East'] += 1
             elif america[0] <= longitude <= america[1]:
-                cnt['america'] += 1
+                cnt['Americas'] += 1
             elif asia[0] <= longitude <= asia[1]:
-                cnt['asia'] += 1
+                cnt['Asia / Oceania'] += 1
+            elif alaska[0] <= longitude <= alaska[1] and alaska[2] <= latitude <= alaska[3]:
+                # Alaska
+                cnt['Americas'] += 1
+            elif hawai[0] <= longitude <= hawai[1] and hawai[2] <= latitude <= hawai[3]:
+                # Hawaï
+                cnt['Asia / Oceania'] += 1
             else:
-                if ind == 15:
-                    print(f"Not in europe, america, or asia : {longitude},"
-                          f"{node_info[10]}, {node_info[8]}, {node_info[9]}")
+                # if ind == 15:
+                print(f"Not in europe, america, or asia : {longitude},"
+                      f"{node_info[10]}, {node_info[8]}, {node_info[9]}")
                 cnt['other'] += 1
         result[utc_time] = cnt
         cnt = Counter()
@@ -50,12 +59,14 @@ def geo_distribution_per_hour(json_dir: str):
     print(df)
     fig, ax = plt.subplots()
     sns.lineplot(data=df, ax=ax)
-    ax.set(xlabel='Time (UTC)', ylabel='Number of nodes')
+    ax.set(xlabel='Time (in UTC)', ylabel='Number of nodes')
     for ind, label in enumerate(ax.get_xticklabels()):
         if ind % 15 == 0:  # every 15th label is kept
             label.set_visible(True)
         else:
             label.set_visible(False)
+    ax.legend(loc='lower left', bbox_to_anchor=(0.65, 0.7))
+    ax.set_ylim(ymin=0)
     fig.autofmt_xdate()
     plt.show()
 
@@ -89,24 +100,42 @@ def churn(json_dir: str, period: ChurnPeriod):
     files_number = period.value
     nodes_sets = []
     nodes_set = set()
+    i = 1
     while files:
         for _ in range(files_number):
-            with open(os.path.join(json_dir, files.pop()), 'r') as f:
+            filename = files.pop()
+            with open(os.path.join(json_dir, filename), 'r') as f:
                 nodes = json.load(f)
             for node_info in nodes:
                 nodes_set.add(f'{node_info[0]}-{node_info[1]}-{node_info[5]}')
             # print(len(nodes_set))
-        nodes_sets.append(nodes_set)
+        nodes_sets.append((f'jour {i}', nodes_set))
+        i += 1
         nodes_set = set()
     print("Finished ", len(nodes_sets))
-    nodes_set1 = nodes_sets[0]
-    for nodes_set in nodes_sets[1:]:
-        print(f'Present in set 1 but not in set 2 : {len(nodes_set1 - nodes_set)}')
-        print(f'Nodes missing : {len(nodes_set1 - nodes_set)/len(nodes_set1)*100}')
-        print(f'Present in set 2 but not in set 1 : {len(nodes_set - nodes_set1)}')
-        print(f'New nodes : {len(nodes_set - nodes_set1)/len(nodes_set)*100}')
-        print()
-        nodes_set1 = nodes_set
+    missing_list = []
+    new_list = []
+    for (day_i, nodes_set_i), (day_j, nodes_set_j) in zip(nodes_sets, nodes_sets[1:]):
+        print(f'Période : {day_i} / {day_j}')
+        print(f'Nombre noeuds : {len(nodes_set_i)}/{len(nodes_set_j)}')
+        missing = len(nodes_set_i - nodes_set_j)
+        print(f'Présent dans le set1 et pas dans le set2 : {missing}')
+        missing_pct = missing/len(nodes_set_i)*100
+        missing_list.append(missing_pct)
+        missing_pct = round(missing_pct, 2)
+        print(f'Noeuds manquants : {missing_pct}%')
+        new = len(nodes_set_j - nodes_set_i)
+        print(f'Présent dans le set2 et pas dans le set1 : {new}')
+        new_pct = new/len(nodes_set_j)*100
+        new_list.append(new_pct)
+        new_pct = round(new_pct, 2)
+        print(f'Nouveaux noeuds: {new_pct}%\n')
+    print(f'Min missing {min(missing_list)}%, '
+          f'Max missing {max(missing_list)}% (or {sorted(missing_list)[-2]}), '
+          f'Mean missing {round(statistics.mean(missing_list),2)}% (or '
+          f'{round(statistics.mean(sorted(missing_list)[:-1]),2)})')
+    print(f'Min new {min(new_list)}%, Max new {max(new_list)}%, '
+          f'Mean new {round(statistics.mean(new_list),2)}%')
 
 
 def client_distribution(csv_file: str, export_json_file: str, min_addr: int,
@@ -215,7 +244,7 @@ def up_nodes_per_sec(csv_files: list):
         data_to_add = pd.read_csv(csv_file, names=[os.path.splitext(csv_file)[0].split('_')[-1]])
         data = data.join(data_to_add, how='outer')
     ax = sns.lineplot(data=data)
-    ax.set(xlabel='time (s)', ylabel='number of nodes')
+    ax.set(xlabel='Elapsed time (in seconds)', ylabel='Number of nodes')
     plt.show()
 
 
@@ -245,9 +274,9 @@ def main(argv):
     # up_nodes_per_sec(argv[1:])
     # addr_per_node(argv[1], argv[2])
     # client_distribution(argv[1], argv[2], int(argv[3]), int(argv[4]), argv[5])
-    churn(argv[1], ChurnPeriod.EIGHTHOUR)
+    # churn(argv[1], ChurnPeriod.ONEDAY)
     # distinct_ip(argv[1:])
-    # geo_distribution_per_hour(argv[1])
+    geo_distribution_per_hour(argv[1])
     # number_of_nodes(argv[1:])
 
 
