@@ -10,9 +10,14 @@ import pytz
 import datetime
 import bisect
 import statistics
-from collections import Counter, OrderedDict
+import pickle
+from typing import List
+from collections import Counter, OrderedDict, defaultdict
 from enum import Enum
-from timeit import default_timer as timer
+
+
+def int_default_value():
+    return int('-2')
 
 
 def geo_distribution_per_hour(json_dir: str):
@@ -79,7 +84,7 @@ def distinct_ip(export_json_dirs: str):
             with open(path, 'r') as f:
                 nodes = json.load(f)
             for node_info in nodes:
-                all_nodes_set.add(f'{node_info[0]}-{node_info[1]}-{node_info[5]}')
+                all_nodes_set.add(f'{node_info[0]}')
     print(f"Distinct IP in all the data files from the dir : {len(all_nodes_set)}")
 
 
@@ -92,7 +97,7 @@ class ChurnPeriod(Enum):
     ONEDAY = 360
 
 
-def churn(json_dir: str, period: ChurnPeriod):
+def churn(json_dir: str, period: ChurnPeriod, result_file: str):
     files = sorted(os.listdir(json_dir), reverse=True)
     print(len(files))
     files = files[:-(len(files) % period.value)] if len(files) % period.value != 0 else files
@@ -100,8 +105,13 @@ def churn(json_dir: str, period: ChurnPeriod):
     files_number = period.value
     nodes_sets = []
     nodes_set = set()
-    i = 1
     while files:
+        if period == ChurnPeriod.ONEDAY:
+            day = os.path.splitext(files[-1])[0].split('-')[0]
+        else:
+            day = os.path.splitext(files[-1])[0].replace('-', ' ')
+        # day = day[:4] + '-' + day[4:6] + '-' + day[6:]
+        print(day)
         for _ in range(files_number):
             filename = files.pop()
             with open(os.path.join(json_dir, filename), 'r') as f:
@@ -109,12 +119,12 @@ def churn(json_dir: str, period: ChurnPeriod):
             for node_info in nodes:
                 nodes_set.add(f'{node_info[0]}-{node_info[1]}-{node_info[5]}')
             # print(len(nodes_set))
-        nodes_sets.append((f'jour {i}', nodes_set))
-        i += 1
+        nodes_sets.append((f'{day}', nodes_set))
         nodes_set = set()
     print("Finished ", len(nodes_sets))
     missing_list = []
     new_list = []
+    result = {}
     for (day_i, nodes_set_i), (day_j, nodes_set_j) in zip(nodes_sets, nodes_sets[1:]):
         print(f'Période : {day_i} / {day_j}')
         print(f'Nombre noeuds : {len(nodes_set_i)}/{len(nodes_set_j)}')
@@ -130,12 +140,40 @@ def churn(json_dir: str, period: ChurnPeriod):
         new_list.append(new_pct)
         new_pct = round(new_pct, 2)
         print(f'Nouveaux noeuds: {new_pct}%\n')
+        result[f'{day_i}–{day_j}'] = {
+            'Nodes leaving the network': missing_pct,
+            'Nodes (re)joining the network': new_pct
+        }
     print(f'Min missing {min(missing_list)}%, '
           f'Max missing {max(missing_list)}% (or {sorted(missing_list)[-2]}), '
           f'Mean missing {round(statistics.mean(missing_list),2)}% (or '
           f'{round(statistics.mean(sorted(missing_list)[:-1]),2)})')
     print(f'Min new {min(new_list)}%, Max new {max(new_list)}%, '
           f'Mean new {round(statistics.mean(new_list),2)}%')
+    with open(result_file, 'w') as f:
+        json.dump(result, f)
+
+
+def display_churn(json_file: str, nth_x_axis=1, mondays=False):
+    with open(json_file, 'r') as f:
+        result = json.load(f)
+    df = pd.DataFrame.from_dict(result, orient='index')
+    df.columns = ['Nodes leaving the network', 'Nodes (re)joining the network']
+    if mondays:
+        df.rename(index=lambda s: s.replace('–', ', '), inplace=True)
+    print(df)
+    fig, ax = plt.subplots()
+    sns.lineplot(data=df, ax=ax)
+    ax.set(xlabel='Time', ylabel='Rate (%)')
+    for ind, label in enumerate(ax.get_xticklabels()):
+        if ind % nth_x_axis == 0:  # every 15th label is kept
+            label.set_visible(True)
+        else:
+            label.set_visible(False)
+    # ax.legend(loc='lower left', bbox_to_anchor=(0.65, 0.7))
+    ax.set_ylim(ymin=0, ymax=20)
+    fig.autofmt_xdate()
+    plt.show()
 
 
 def client_distribution(csv_file: str, export_json_file: str, min_addr: int,
@@ -176,10 +214,25 @@ def client_distribution(csv_file: str, export_json_file: str, min_addr: int,
         json.dump(result, f, indent=4)
 
 
-def addr_per_node(csv_file: str, export_json_file: str):
+def addr_per_node(export_json_file: str, csv_files: List[str], result_file=None):
     # columns: index, node, max ADDR returned
-    data = pd.read_csv(csv_file, names=["node_index", "node",
+    # data = pd.read_csv(csv_file, names=["node_index", "node",
+    #                    "number of ADDR returned"], usecols=[0, 1, 2])
+    # i = 0
+    # j = 0
+    # for node in data.values:
+    #     i += 1 if node[2] == -1 else 0
+    #     j += 1 if node[2] == 0 else 0
+    # print(f"In crawl csv file, size : {len(data.index)}, number of -1 : {i}, 0 : {j}")
+
+    data = pd.read_csv(csv_files[0], names=["node_index", "node",
                        "number of ADDR returned"], usecols=[0, 1, 2])
+    for csv_file in csv_files[1:]:
+        data_to_add = pd.read_csv(csv_file, names=["node_index", "node",
+                                  "number of ADDR returned"], usecols=[0, 1, 2])
+        data = data.append(data_to_add)
+    print(data)
+
     i = 0
     j = 0
     for node in data.values:
@@ -189,28 +242,68 @@ def addr_per_node(csv_file: str, export_json_file: str):
 
     with open(export_json_file, 'r') as f:
         data_json = json.load(f)
-    result = {}
+    result = defaultdict(int_default_value)
     i = 1
+
     # rows_list = []
-    for crawl_node in data.values:
-        for exported_node in data_json:
+    for exported_node in data_json:
+        added = False
+        for crawl_node in data.values:
             exported_node_formatted = (
                 f"{exported_node[0]}-{exported_node[1]}-{exported_node[5]}"
             )
             if crawl_node[1] == exported_node_formatted:
-                result[i] = crawl_node[2]
-                i += 1
-                break
+                if max(result[i], crawl_node[2]) != -2:
+                    result[i] = max(result[i], crawl_node[2])
+                    added = True
+        if added:
+            i += 1
+        if i % 500 == 0:
+            print(f'{len(data_json)-i} left')
+    if result_file is not None:
+        with open(result_file, 'wb') as f:
+            pickle.dump(result, f, protocol=pickle.HIGHEST_PROTOCOL)
+    else:
+        df = pd.DataFrame.from_dict(result, orient='index', columns=[None])
+        print(df)
+        i = 0
+        j = 0
+        k = 0
+        n = 0
+        m = 0
+        for node in df.values:
+            i += 1 if node[0] == -1 else 0
+            j += 1 if node[0] == 0 else 0
+            k += 1 if node[0] <= 50 else 0
+            n += 1 if node[0] <= 25 else 0
+            m += 1 if node[0] <= 12 else 0
+        print(f"In crawl csv file filtered by export json file, size : {len(df.index)},"
+              f"number of -1 : {i}, 0 : {j}, <= 50 : {k}, <= 25 : {n}, <= 12 : {m}")
+
+        ax = sns.relplot(edgecolor='none', data=df)
+        ax.set(xlabel='Node index', ylabel='Number of addresses')
+        plt.show()
+
+
+def display_addr_per_node(pickle_file: str):
+    with open(pickle_file, 'rb') as f:
+        result = pickle.load(f)
     df = pd.DataFrame.from_dict(result, orient='index', columns=[None])
+    print(df)
     i = 0
     j = 0
+    k = 0
+    m = 0
+    n = 0
     for node in df.values:
         i += 1 if node[0] == -1 else 0
         j += 1 if node[0] == 0 else 0
+        k += 1 if node[0] <= 50 else 0
+        m += 1 if node[0] <= 25 else 0
+        n += 1 if node[0] <= 12 else 0
     print(f"In crawl csv file filtered by export json file, size : {len(df.index)},"
-          f"number of -1 : {i}, 0 : {j}")
-
-    ax = sns.relplot(edgecolor='none', data=df)
+          f"number of -1 : {i}, 0 : {j}, <= 50 : {k}, <= 25 : {m}, <= 12 : {n}")
+    ax = sns.scatterplot(edgecolor='none', data=df)
     ax.set(xlabel='Node index', ylabel='Number of addresses')
     plt.show()
 
@@ -243,8 +336,10 @@ def up_nodes_per_sec(csv_files: list):
     for csv_file in csv_files[1:]:
         data_to_add = pd.read_csv(csv_file, names=[os.path.splitext(csv_file)[0].split('_')[-1]])
         data = data.join(data_to_add, how='outer')
-    ax = sns.lineplot(data=data)
+    fig, ax = plt.subplots()
     ax.set(xlabel='Elapsed time (in seconds)', ylabel='Number of nodes')
+    sns.lineplot(data=data, ax=ax)
+    # fig.autofmt_xdate()
     plt.show()
 
 
@@ -272,11 +367,13 @@ def number_of_nodes(export_json_dirs):
 def main(argv):
     sns.set()
     # up_nodes_per_sec(argv[1:])
-    # addr_per_node(argv[1], argv[2])
+    addr_per_node(argv[1], argv[2:-1], argv[-1])
+    # display_addr_per_node(argv[1])
     # client_distribution(argv[1], argv[2], int(argv[3]), int(argv[4]), argv[5])
-    # churn(argv[1], ChurnPeriod.ONEDAY)
+    # churn(argv[1], ChurnPeriod.ONEDAY, argv[2])
+    # display_churn(argv[1], 1, False)
     # distinct_ip(argv[1:])
-    geo_distribution_per_hour(argv[1])
+    # geo_distribution_per_hour(argv[1])
     # number_of_nodes(argv[1:])
 
 
