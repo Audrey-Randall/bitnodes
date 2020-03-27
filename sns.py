@@ -65,8 +65,11 @@ def geo_distribution_per_hour(json_dir: str):
     fig, ax = plt.subplots()
     sns.lineplot(data=df, ax=ax)
     ax.set(xlabel='Time (in UTC)', ylabel='Number of nodes')
+    last = len(ax.get_xticklabels()) - 1
     for ind, label in enumerate(ax.get_xticklabels()):
-        if ind % 15 == 0:  # every 15th label is kept
+        if ind == last:
+            label.set_visible(True)
+        elif ind % 30 == 0:  # every nth label is kept
             label.set_visible(True)
         else:
             label.set_visible(False)
@@ -165,8 +168,11 @@ def display_churn(json_file: str, nth_x_axis=1, mondays=False):
     fig, ax = plt.subplots()
     sns.lineplot(data=df, ax=ax)
     ax.set(xlabel='Time', ylabel='Rate (%)')
+    last = len(ax.get_xticklabels()) - 1
     for ind, label in enumerate(ax.get_xticklabels()):
-        if ind % nth_x_axis == 0:  # every 15th label is kept
+        if ind == last:
+            label.set_visible(True)
+        elif ind % nth_x_axis == 0:  # every nth label is kept
             label.set_visible(True)
         else:
             label.set_visible(False)
@@ -176,8 +182,46 @@ def display_churn(json_file: str, nth_x_axis=1, mondays=False):
     plt.show()
 
 
-def client_distribution(csv_file: str, export_json_file: str, min_addr: int,
-                        max_addr: int, outfile: str):
+def client_distribution(export_json_file: str, result_filename=None):
+    with open(export_json_file, 'r') as f:
+        nodes_list = json.load(f)
+    client_counter = Counter()
+    for node_info in nodes_list:
+        client_counter.update([node_info[3]])
+    result = OrderedDict(client_counter.most_common())
+    df = pd.DataFrame.from_dict(result, orient='index', columns=["Number of nodes"])
+    if result_filename is not None:
+        df.to_csv(result_filename, index_label="Client version")
+
+    satoshi_number = 0
+    btcd_number = 0
+    bcoin_number = 0
+    bitcoin_unlimited_number = 0
+    total_number = 0
+    for key, value in result.items():
+        if key.startswith("/Satoshi:"):
+            satoshi_number += value
+        elif "btcd" in key:
+            btcd_number += value
+        elif key.startswith("/bcoin:"):
+            bcoin_number += value
+        elif key.startswith("/BitcoinUnlimited:"):
+            bitcoin_unlimited_number += value
+        total_number += value
+    print(f"Total Number of nodes : {total_number}")
+    print(f"Satoshi number : {satoshi_number}")
+    print(f"Percentage : {round((satoshi_number/total_number)*100, 3)}")
+    print(f"btcd number : {btcd_number}")
+    print(f"Percentage : {round((btcd_number/total_number)*100, 3)}")
+    print(f"bcoin number : {bcoin_number}")
+    print(f"Percentage : {round((bcoin_number/total_number)*100, 3)}")
+    print(f"bitcoin_unlimited number : {bitcoin_unlimited_number}")
+    print(f"Percentage : {round((bitcoin_unlimited_number/total_number)*100, 3)}")
+
+
+def client_distribution_addr_per_node(csv_file: str, export_json_file: str,
+                                      min_addr: int, max_addr: int,
+                                      outfile: str):
     """
     Reads the nodes_per_getADDR csv file (crawl dir) and the export json file
     (export dir) and counts the different client used by the nodes which
@@ -225,60 +269,56 @@ def addr_per_node(export_json_file: str, csv_files: List[str], result_file=None)
     #     j += 1 if node[2] == 0 else 0
     # print(f"In crawl csv file, size : {len(data.index)}, number of -1 : {i}, 0 : {j}")
 
-    data = pd.read_csv(csv_files[0], names=["node_index", "node",
+    data_csv = pd.read_csv(csv_files[0], names=["node_index", "node",
                        "number of ADDR returned"], usecols=[0, 1, 2])
     for csv_file in csv_files[1:]:
         data_to_add = pd.read_csv(csv_file, names=["node_index", "node",
                                   "number of ADDR returned"], usecols=[0, 1, 2])
-        data = data.append(data_to_add)
-    print(data)
+        data_csv = data_csv.append(data_to_add)
+    print(data_csv)
 
     i = 0
     j = 0
-    for node in data.values:
+    for node in data_csv.values:
         i += 1 if node[2] == -1 else 0
         j += 1 if node[2] == 0 else 0
-    print(f"In crawl csv file, size : {len(data.index)}, number of -1 : {i}, 0 : {j}")
+    print(f"In crawl csv file, size : {len(data_csv.index)}, number of -1 : {i}, 0 : {j}")
+
+    data = defaultdict(list)
+    for crawl_node in data_csv.values:
+        data[crawl_node[1]].append(crawl_node[2])
 
     with open(export_json_file, 'r') as f:
         data_json = json.load(f)
     result = defaultdict(int_default_value)
-    i = 1
 
-    # rows_list = []
+    i = 0
     for exported_node in data_json:
         added = False
-        for crawl_node in data.values:
-            exported_node_formatted = (
-                f"{exported_node[0]}-{exported_node[1]}-{exported_node[5]}"
-            )
-            if crawl_node[1] == exported_node_formatted:
-                if max(result[i], crawl_node[2]) != -2:
-                    result[i] = max(result[i], crawl_node[2])
-                    added = True
+        exported_node_formatted = (
+            f"{exported_node[0]}-{exported_node[1]}-{exported_node[5]}"
+        )
+        if len(data[exported_node_formatted]) > 0:
+            result[i] = max(data[exported_node_formatted])
+            added = True
         if added:
             i += 1
-        if i % 500 == 0:
-            print(f'{len(data_json)-i} left')
     if result_file is not None:
         with open(result_file, 'wb') as f:
             pickle.dump(result, f, protocol=pickle.HIGHEST_PROTOCOL)
     else:
         df = pd.DataFrame.from_dict(result, orient='index', columns=[None])
         print(df)
-        i = 0
-        j = 0
-        k = 0
-        n = 0
-        m = 0
+        h = i = j = k = m = n = 0
         for node in df.values:
+            h += 1 if node[0] == -2 else 0
             i += 1 if node[0] == -1 else 0
             j += 1 if node[0] == 0 else 0
             k += 1 if node[0] <= 50 else 0
-            n += 1 if node[0] <= 25 else 0
-            m += 1 if node[0] <= 12 else 0
+            m += 1 if node[0] <= 25 else 0
+            n += 1 if node[0] <= 12 else 0
         print(f"In crawl csv file filtered by export json file, size : {len(df.index)},"
-              f"number of -1 : {i}, 0 : {j}, <= 50 : {k}, <= 25 : {n}, <= 12 : {m}")
+              f"number of -2 : {h}, -1 : {i}, 0 : {j}, <= 50 : {k}, <= 25 : {m}, <= 12 : {n}")
 
         ax = sns.relplot(edgecolor='none', data=df)
         ax.set(xlabel='Node index', ylabel='Number of addresses')
@@ -367,14 +407,15 @@ def number_of_nodes(export_json_dirs):
 def main(argv):
     sns.set()
     # up_nodes_per_sec(argv[1:])
-    addr_per_node(argv[1], argv[2:-1], argv[-1])
+    # addr_per_node(argv[1], argv[2:])#:-1]), argv[-1])
     # display_addr_per_node(argv[1])
-    # client_distribution(argv[1], argv[2], int(argv[3]), int(argv[4]), argv[5])
+    # client_distribution_addr_per_node(argv[1], argv[2], int(argv[3]), int(argv[4]), argv[5])
     # churn(argv[1], ChurnPeriod.ONEDAY, argv[2])
-    # display_churn(argv[1], 1, False)
+    # display_churn(argv[1], 5, False)
     # distinct_ip(argv[1:])
-    # geo_distribution_per_hour(argv[1])
+    geo_distribution_per_hour(argv[1])
     # number_of_nodes(argv[1:])
+    # client_distribution(argv[1], argv[2])
 
 
 if __name__ == "__main__":
