@@ -14,10 +14,48 @@ import pickle
 from typing import List
 from collections import Counter, OrderedDict, defaultdict
 from enum import Enum
+import countries_codes
 
 
 def int_default_value():
     return int('-2')
+
+
+def geo_distribution_by_continent_several_days(
+        json_dirs: List[str],
+        continent: countries_codes.Continent):
+    average_list = []
+    for d in json_dirs:
+        average = geo_distribution_by_continent(d, continent)
+        average_list.append(average)
+    print("Total average number of nodes hosted in "
+          f"continent {continent.name} : {statistics.mean(average_list)}")
+
+
+def geo_distribution_by_continent(json_dir: str,
+                                  continent: countries_codes.Continent):
+    result = {}
+    cnt = Counter()
+    local = pytz.timezone("Europe/Paris")
+    for filename in os.listdir(json_dir):
+        naive_time = datetime.datetime.strptime(os.path.splitext(filename)[0],
+                                                "%Y%m%d-%H:%M:%S")
+        utc_time = local.localize(naive_time, is_dst=None).\
+            astimezone(pytz.utc).strftime("%H:%M:%S")
+        with open(os.path.join(json_dir, filename), 'r') as f:
+            nodes = json.load(f)
+        for node_info in nodes:
+            country_code = node_info[9]
+            if country_code in countries_codes.continents[continent.value]:
+                cnt[continent.name] += 1
+        result[utc_time] = cnt
+        cnt = Counter()
+    # print(result.values[0])
+    all_nodes_list = [v[continent.name] for v in result.values()]
+    average = statistics.mean(all_nodes_list)
+    print(f"Average number of nodes hosted in "
+          f"continent {continent.name} : {average}")
+    return average
 
 
 def geo_distribution_per_hour(json_dir: str):
@@ -413,7 +451,9 @@ def main(argv):
     # churn(argv[1], ChurnPeriod.ONEDAY, argv[2])
     # display_churn(argv[1], 5, False)
     # distinct_ip(argv[1:])
-    geo_distribution_per_hour(argv[1])
+    # geo_distribution_per_hour(argv[1])
+    # geo_distribution_by_continent(argv[1], countries_codes.Continent.EUROPE)
+    geo_distribution_by_continent_several_days(argv[1:], countries_codes.Continent.NORTH_AMERICA)
     # number_of_nodes(argv[1:])
     # client_distribution(argv[1], argv[2])
 
