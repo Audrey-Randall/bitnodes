@@ -5,6 +5,7 @@ import os
 import json
 import csv
 import matplotlib.pyplot as plt
+import numpy as np
 import random
 import pytz
 import datetime
@@ -138,8 +139,12 @@ class ChurnPeriod(Enum):
     ONEDAY = 360
 
 
-def churn(json_dir: str, period: ChurnPeriod, result_file: str):
-    files = sorted(os.listdir(json_dir), reverse=True)
+def churn(json_dirs: List[str], period: ChurnPeriod, result_file: str):
+    files = []
+    for d in json_dirs:
+        for f in os.listdir(d):
+            files.append(os.path.join(d, f))
+    files.sort(reverse=True)
     print(len(files))
     files = files[:-(len(files) % period.value)] if len(files) % period.value != 0 else files
     print(len(files))
@@ -147,15 +152,17 @@ def churn(json_dir: str, period: ChurnPeriod, result_file: str):
     nodes_sets = []
     nodes_set = set()
     while files:
+        day = os.path.basename(files[-1])
+        day = os.path.splitext(day)[0]
         if period == ChurnPeriod.ONEDAY:
-            day = os.path.splitext(files[-1])[0].split('-')[0]
+            day = day.split('-')[0]
         else:
-            day = os.path.splitext(files[-1])[0].replace('-', ' ')
+            day = day.replace('-', ' ')[:-3]
         # day = day[:4] + '-' + day[4:6] + '-' + day[6:]
         print(day)
         for _ in range(files_number):
             filename = files.pop()
-            with open(os.path.join(json_dir, filename), 'r') as f:
+            with open(filename, 'r') as f:
                 nodes = json.load(f)
             for node_info in nodes:
                 nodes_set.add(f'{node_info[0]}-{node_info[1]}-{node_info[5]}')
@@ -185,11 +192,12 @@ def churn(json_dir: str, period: ChurnPeriod, result_file: str):
             'Nodes leaving the network': missing_pct,
             'Nodes (re)joining the network': new_pct
         }
-    print(f'Min missing {min(missing_list)}%, '
-          f'Max missing {max(missing_list)}% (or {sorted(missing_list)[-2]}), '
+    print(f'Min missing {round(min(missing_list),2)}%, '
+          f'Max missing {round(max(missing_list),2)}% '
+          f'(or {round(sorted(missing_list)[-2],2)}), '
           f'Mean missing {round(statistics.mean(missing_list),2)}% (or '
           f'{round(statistics.mean(sorted(missing_list)[:-1]),2)})')
-    print(f'Min new {min(new_list)}%, Max new {max(new_list)}%, '
+    print(f'Min new {round(min(new_list),2)}%, Max new {round(max(new_list),2)}%, '
           f'Mean new {round(statistics.mean(new_list),2)}%')
     with open(result_file, 'w') as f:
         json.dump(result, f)
@@ -207,15 +215,23 @@ def display_churn(json_file: str, nth_x_axis=1, mondays=False):
     sns.lineplot(data=df, ax=ax)
     ax.set(xlabel='Time', ylabel='Rate (%)')
     last = len(ax.get_xticklabels()) - 1
-    for ind, label in enumerate(ax.get_xticklabels()):
-        if ind == last:
-            label.set_visible(True)
-        elif ind % nth_x_axis == 0:  # every nth label is kept
-            label.set_visible(True)
-        else:
-            label.set_visible(False)
+    # print(last)
+    # for ind, label in enumerate(ax.get_xticklabels()):
+    #     if ind == last:
+    #         print(f"{ind} visible")
+    #         label.set_visible(True)
+    #     elif ind % nth_x_axis == 0:  # every nth label is kept
+    #         print(f"{ind} visible")
+    #         label.set_visible(True)
+    #     else:
+    #         print(f"{ind} NOT visible")
+    #         label.set_visible(False)
+        
     # ax.legend(loc='lower left', bbox_to_anchor=(0.65, 0.7))
     ax.set_ylim(ymin=0, ymax=20)
+    rg = np.linspace(0, last, nth_x_axis).astype(int).tolist()
+    print(rg)
+    ax.set_xticks(rg)
     fig.autofmt_xdate()
     plt.show()
 
@@ -444,17 +460,18 @@ def number_of_nodes(export_json_dirs):
 
 def main(argv):
     sns.set()
+    sns.set_style("darkgrid", {"xtick.major.size": 3})
     # up_nodes_per_sec(argv[1:])
     # addr_per_node(argv[1], argv[2:])#:-1]), argv[-1])
     # display_addr_per_node(argv[1])
     # client_distribution_addr_per_node(argv[1], argv[2], int(argv[3]), int(argv[4]), argv[5])
-    # churn(argv[1], ChurnPeriod.ONEDAY, argv[2])
-    # display_churn(argv[1], 5, False)
+    # churn(argv[1:-1], ChurnPeriod.EIGHTHOUR, argv[-1])
+    display_churn(argv[1], 16, False)
     # distinct_ip(argv[1:])
     # geo_distribution_per_hour(argv[1])
     # geo_distribution_by_continent(argv[1], countries_codes.Continent.EUROPE)
-    geo_distribution_by_continent_several_days(argv[1:], countries_codes.Continent.NORTH_AMERICA)
-    # number_of_nodes(argv[1:])
+    # geo_distribution_by_continent_several_days(argv[1:], countries_codes.Continent.NORTH_AMERICA)
+    # number_of_nodes(argv[1:]) 
     # client_distribution(argv[1], argv[2])
 
 
