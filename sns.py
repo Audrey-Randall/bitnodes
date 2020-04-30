@@ -16,6 +16,8 @@ from typing import List
 from collections import Counter, OrderedDict, defaultdict
 from enum import Enum
 import countries_codes
+import packaging.version
+from vulnerable_client_versions import vulnerable_client_versions
 
 
 def int_default_value():
@@ -241,7 +243,13 @@ def client_distribution(export_json_file: str, result_filename=None):
         nodes_list = json.load(f)
     client_counter = Counter()
     for node_info in nodes_list:
-        client_counter.update([node_info[3]])
+        version = node_info[3]
+        paren_start = version.find('(')
+        paren_end = version.find(')')
+        if paren_start != -1 and paren_end != -1:
+            # remove text inside parenthesis in version
+            version = version[:paren_start] + version[paren_end+1:]
+        client_counter.update([version])
     result = OrderedDict(client_counter.most_common())
     df = pd.DataFrame.from_dict(result, orient='index', columns=["Number of nodes"])
     if result_filename is not None:
@@ -324,7 +332,7 @@ def addr_per_node(export_json_file: str, csv_files: List[str], result_file=None)
     # print(f"In crawl csv file, size : {len(data.index)}, number of -1 : {i}, 0 : {j}")
 
     data_csv = pd.read_csv(csv_files[0], names=["node_index", "node",
-                       "number of ADDR returned"], usecols=[0, 1, 2])
+                           "number of ADDR returned"], usecols=[0, 1, 2])
     for csv_file in csv_files[1:]:
         data_to_add = pd.read_csv(csv_file, names=["node_index", "node",
                                   "number of ADDR returned"], usecols=[0, 1, 2])
@@ -458,6 +466,41 @@ def number_of_nodes(export_json_dirs):
           f"Median : {statistics.median(number_of_nodes)}")
 
 
+def vulnerable_nodes_number(client_distrib_csv_filename, cve_name):
+    version_counter = Counter()
+    with open(client_distrib_csv_filename, 'r') as f:
+        reader = csv.DictReader(f, delimiter=',')
+        for row in reader:
+            version_counter.update(Counter({
+                row['Client version']: int(row['Number of nodes'])
+            }))
+    vulnerable_versions_count = 0
+    for client_types, vulnerable_version in vulnerable_client_versions[cve_name]:
+        print(client_types, vulnerable_version)
+        for client_version, count in version_counter.items():
+            if "/Knots:" in client_version:
+                client_version = client_version[:-10]
+            start = client_types[0]
+            end = client_types[1] if len(client_types) == 2 else '/'
+            if client_version.startswith(start) and client_version.endswith(end):
+                version = client_version.split(':')[1].split('/')[0]
+                v_target = packaging.version.parse(version)
+                if len(vulnerable_version) == 1:
+                    v = packaging.version.parse(vulnerable_version[0])
+                    print(f"{v_target} < {v} = {v_target < v}")
+                    if v_target < v:
+                        print(client_version, count)
+                        vulnerable_versions_count += count
+                elif len(vulnerable_version) == 2:
+                    v1 = packaging.version.parse(vulnerable_version[0])
+                    v2 = packaging.version.parse(vulnerable_version[1])
+                    print(f"{v1} <= {v_target} < {v2} = {v1 <= v_target < v2}")
+                    if v1 <= v_target < v2:
+                        print(client_version, count)
+                        vulnerable_versions_count += count
+    print(vulnerable_versions_count)
+
+
 def main(argv):
     sns.set()
     sns.set_style("darkgrid", {"xtick.major.size": 3})
@@ -465,14 +508,15 @@ def main(argv):
     # addr_per_node(argv[1], argv[2:])#:-1]), argv[-1])
     # display_addr_per_node(argv[1])
     # client_distribution_addr_per_node(argv[1], argv[2], int(argv[3]), int(argv[4]), argv[5])
-    # churn(argv[1:-1], ChurnPeriod.EIGHTHOUR, argv[-1])
-    display_churn(argv[1], 16, False)
+    # churn(argv[1:-1], ChurnPeriod.ONEHOUR, argv[-1])
+    # display_churn(argv[1], 16, False)
     # distinct_ip(argv[1:])
     # geo_distribution_per_hour(argv[1])
     # geo_distribution_by_continent(argv[1], countries_codes.Continent.EUROPE)
     # geo_distribution_by_continent_several_days(argv[1:], countries_codes.Continent.NORTH_AMERICA)
     # number_of_nodes(argv[1:]) 
     # client_distribution(argv[1], argv[2])
+    vulnerable_nodes_number(argv[1], argv[2])
 
 
 if __name__ == "__main__":

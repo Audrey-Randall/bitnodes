@@ -17,6 +17,7 @@ maxminddb==1.5.1
 mccabe==0.6.1
 more-itertools==7.2.0
 numpy==1.17.4
+packaging==20.3
 pandas==0.25.3
 pluggy==0.13.0
 py==1.8.0
