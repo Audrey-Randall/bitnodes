@@ -17,7 +17,7 @@ from collections import Counter, OrderedDict, defaultdict
 from enum import Enum
 import countries_codes
 import packaging.version
-from vulnerable_client_versions import vulnerable_client_versions
+from clients_metadata import vulnerable_client_versions, versions_date
 
 
 def int_default_value():
@@ -228,7 +228,7 @@ def display_churn(json_file: str, nth_x_axis=1, mondays=False):
     #     else:
     #         print(f"{ind} NOT visible")
     #         label.set_visible(False)
-        
+
     # ax.legend(loc='lower left', bbox_to_anchor=(0.65, 0.7))
     ax.set_ylim(ymin=0, ymax=20)
     rg = np.linspace(0, last, nth_x_axis).astype(int).tolist()
@@ -501,6 +501,39 @@ def vulnerable_nodes_number(client_distrib_csv_filename, cve_name):
     print(vulnerable_versions_count)
 
 
+def temporal_distribution_clients(client_distrib_csv_filename):
+    version_counter = Counter()
+    with open(client_distrib_csv_filename, 'r') as f:
+        reader = csv.DictReader(f, delimiter=',')
+        for row in reader:
+            version_counter.update(Counter({
+                row['Client version']: int(row['Number of nodes'])
+            }))
+    total = 0
+    result = Counter()
+    for date, versions in versions_date.items():
+        subtotal = 0
+        print(f"{date}:")
+        for version, count in version_counter.items():
+            if version.startswith("/Satoshi:"):
+                version = version.split(':')[1].split('/')[0]
+                if version in versions:
+                    result[date] += count
+                    subtotal += count
+                    print(f"\t{version}({count})")
+                    print(f"\tadd {count}, subtotal = {subtotal}")
+        total += subtotal
+    print(f"Total: {total}")
+    df = pd.DataFrame.from_dict(result, orient="index", columns=["Count"])
+    df = df[::-1]
+    print(df)
+    fig, ax = plt.subplots()
+    ax.set(xlabel='Date', ylabel='Count')
+    sns.barplot(x=df.index, y="Count", data=df, ax=ax, color="cornflowerblue")
+    fig.autofmt_xdate()
+    plt.show()
+
+
 def main(argv):
     sns.set()
     sns.set_style("darkgrid", {"xtick.major.size": 3})
@@ -516,7 +549,8 @@ def main(argv):
     # geo_distribution_by_continent_several_days(argv[1:], countries_codes.Continent.NORTH_AMERICA)
     # number_of_nodes(argv[1:]) 
     # client_distribution(argv[1], argv[2])
-    vulnerable_nodes_number(argv[1], argv[2])
+    # vulnerable_nodes_number(argv[1], argv[2])
+    temporal_distribution_clients(argv[1])
 
 
 if __name__ == "__main__":
