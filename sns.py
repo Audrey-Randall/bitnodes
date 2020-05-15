@@ -525,11 +525,12 @@ def temporal_distribution_clients(client_distrib_csv_filename):
         total += subtotal
     print(f"Total: {total}")
     df = pd.DataFrame.from_dict(result, orient="index", columns=["Count"])
-    df = df[::-1]
+    df = df[::-1]  # reverse order
+    df = df[8:]  # Starts when it is significant
     print(df)
     fig, ax = plt.subplots()
-    ax.set(xlabel='Date', ylabel='Count')
-    sns.barplot(x=df.index, y="Count", data=df, ax=ax, color="cornflowerblue")
+    sns.barplot(x=df.index, y='Count', data=df, ax=ax, color="cornflowerblue")
+    ax.set(xlabel='Release date', ylabel='# of nodes')#, ylim=(0, 50))
     fig.autofmt_xdate()
     plt.show()
 
