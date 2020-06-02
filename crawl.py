@@ -70,7 +70,7 @@ redis.connection.socket = gevent.socket
 REDIS_CONN = None
 REDIS_CONN_NO_DECODE = None
 CONF = {}
-NODES_PER_GETADDR = defaultdict(list)
+# NODES_PER_GETADDR = defaultdict(list)
 UP_SIZE = 0
 UP_NODES_PER_SEC = []
 UP_NODES_INDEX = 0
@@ -97,12 +97,11 @@ def enumerate_node(redis_pipe, addr_msgs, now):
     """
     Adds all peering nodes with age <= max. age into the crawl set.
     """
-    global NODES_INDEX
-    peers = 0
+    peers = set()
     excluded = 0
 
     if len(addr_msgs) == 0:
-        return (-1, excluded)
+        return (None, excluded)
 
     for addr_msg in addr_msgs:
         if 'addr_list' in addr_msg:
@@ -121,8 +120,8 @@ def enumerate_node(redis_pipe, addr_msgs, now):
                         continue
                     redis_pipe.sadd('pending', (address, port, services))
                     redis_pipe.sadd('all_nodes_bis', f'node:{address}-{port}-{services}')
-                    peers += 1
-                    if peers >= CONF['peers_per_node']:
+                    peers.add(f'{address}-{port}-{services}')
+                    if len(peers) >= CONF['peers_per_node']:
                         return (peers, excluded)
     return (peers, excluded)
 
@@ -201,9 +200,10 @@ def connect(redis_conn, key):
         now = int(time.time())
         (peers, excluded) = enumerate_node(redis_pipe, addr_msgs, now)
         REDIS_CONN_NO_DECODE.rpush('nodes_per_getaddr', pickle.dumps((key[5:], peers)))
-        NODES_PER_GETADDR[key[5:]].append(peers)
+        # NODES_PER_GETADDR[key[5:]].append(peers)
         logging.debug("%s Peers: %d (Excluded: %d)",
-                      conn.to_addr, peers, excluded)
+                      conn.to_addr, len(peers) if peers is not None else -1,
+                      excluded)
         redis_pipe.set(key, "")
         redis_pipe.sadd('up', key)
     conn.close()
@@ -240,7 +240,7 @@ def dump(date, nodes):
     return Counter([node[-1] for node in json_data]).most_common(1)[0][0]
 
 
-def dump_nodes_per_getaddr(nodes, date):
+def dump_nodes_per_getaddr_old(nodes, date):
     """
     Dumps the number of nodes potential nodes retrieved from the GETADDR
     messages
@@ -254,6 +254,22 @@ def dump_nodes_per_getaddr(nodes, date):
         writer = csv.writer(f)
         for i, (k, v) in enumerate(nodes_per_getaddr.items()):
             writer.writerow([i+1, k, max(v), round(statistics.mean(v)), *v])
+    logging.info(f"Wrote {output}")
+
+
+def dump_nodes_per_getaddr(nodes, date):
+    """
+    Dumps the nodes retrieved from the GETADDR messages from all the crawled
+    nodes
+    """
+    output = os.path.join(CONF['crawl_dir'], f'nodes_per_getADDR_{date}.json')
+    nodes_per_getaddr = defaultdict(set)
+    for nodes_addr_number in nodes:
+        parent_node, nodes_set = pickle.loads(nodes_addr_number)
+        if nodes_set is not None:
+            nodes_per_getaddr[parent_node].update(nodes_set)
+    with open(output, "w", newline='') as f:
+        f.write(json.dumps(nodes_per_getaddr, default=lambda s: list(s)))
     logging.info(f"Wrote {output}")
 
 
