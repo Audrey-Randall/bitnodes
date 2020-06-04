@@ -311,10 +311,11 @@ def get_snapshot():
     """
     Returns latest JSON file (based on creation date) containing a snapshot of
     all reachable nodes from a completed crawl.
+    (Filename starts with a digit and ends with .json)
     """
     snapshot = None
     try:
-        snapshot = max(glob.iglob("{}/*.json".format(CONF['crawl_dir'])))
+        snapshot = max(glob.iglob("{}/[0-9]*.json".format(CONF['crawl_dir'])))
     except ValueError as err:
         logging.warning(err)
     return snapshot
