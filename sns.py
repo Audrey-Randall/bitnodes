@@ -12,6 +12,7 @@ import datetime
 import bisect
 import statistics
 import pickle
+import bz2
 from typing import List
 from collections import Counter, OrderedDict, defaultdict
 from enum import Enum
@@ -395,16 +396,19 @@ def display_addr_per_node(pickle_file: str):
     i = 0
     j = 0
     k = 0
+    k2 = 0
     m = 0
     n = 0
     for node in df.values:
         i += 1 if node[0] == -1 else 0
         j += 1 if node[0] == 0 else 0
-        k += 1 if node[0] <= 50 else 0
+        k += 1 if node[0] <= 100 else 0
+        k2 += 1 if node[0] <= 50 else 0
         m += 1 if node[0] <= 25 else 0
         n += 1 if node[0] <= 12 else 0
+    print(f"Moyenne : {df.values.mean()}")
     print(f"In crawl csv file filtered by export json file, size : {len(df.index)},"
-          f"number of -1 : {i}, 0 : {j}, <= 50 : {k}, <= 25 : {m}, <= 12 : {n}")
+          f"number of -1 : {i}, 0 : {j}, <= 100 : {k}, <= 50 : {k2}, <= 25 : {m}, <= 12 : {n}")
     ax = sns.scatterplot(edgecolor='none', data=df)
     ax.set(xlabel='Node index', ylabel='Number of addresses')
     plt.show()
@@ -530,8 +534,86 @@ def temporal_distribution_clients(client_distrib_csv_filename):
     print(df)
     fig, ax = plt.subplots()
     sns.barplot(x=df.index, y='Count', data=df, ax=ax, color="cornflowerblue")
-    ax.set(xlabel='Release date', ylabel='# of nodes')#, ylim=(0, 50))
+    ax.set(xlabel='Release date', ylabel='# of nodes', ylim=(0, 3000))
     fig.autofmt_xdate()
+    plt.show()
+
+
+def ip_occurrences_in_getaddr(nodes_per_getaddr_filenames):
+    nodes_per_getaddr = defaultdict(set)
+    for filename in nodes_per_getaddr_filenames:
+        with open(filename, 'r') as f:
+            tmp = json.load(f)
+            for parent, nodes in tmp.items():
+                nodes_per_getaddr[parent].update(nodes)
+    occurences = Counter()
+    for parent, nodes in nodes_per_getaddr.items():
+        for node in nodes:
+            occurences[node] += 1
+    df = pd.DataFrame(occurences.most_common()[::-1], columns=['IP', 'Occurrences'])
+    print(df[:-20:-1])
+    print(f'Number of parent nodes : {len(nodes_per_getaddr.keys())}, '
+          f'Number of IP : {len(occurences.keys())}')
+    ax = sns.relplot(edgecolor='none', x=df.index, y='Occurrences', data=df)
+    ax.set(xlabel='Unique IP index', ylabel='Occurrences')
+    plt.show()
+    # result = defaultdict(int_default_value)
+    # for i, (parent, nodes) in enumerate(nodes_per_getaddr.items()):
+    #     result[parent] = len(nodes)
+    #     if parent == "104.199.246.168-8333-1037":
+    #         print(len(nodes), nodes)
+    # df = pd.DataFrame(result.items(), columns=['Parent', 'Count'])
+    # print(df)
+    # h = i = j = k = m = n = 0
+    # for node in df.values:
+    #     h += 1 if node[1] == -2 else 0
+    #     i += 1 if node[1] == -1 else 0
+    #     j += 1 if node[1] == 0 else 0
+    #     k += 1 if node[1] <= 50 else 0
+    #     m += 1 if node[1] <= 25 else 0
+    #     n += 1 if node[1] <= 12 else 0
+    # print(f"In crawl csv file filtered by export json file, size : {len(df.index)},"
+    #       f"number of -2 : {h}, -1 : {i}, 0 : {j}, <= 50 : {k}, <= 25 : {m}, <= 12 : {n}")
+
+    # ax = sns.relplot(edgecolor='none', x=df.index, y='Count', data=df)
+    # ax.set(xlabel='Node index', ylabel='Number of addresses')
+    # plt.show()
+
+
+def ip_occurrences_in_getaddr_pickle(exported_nodes_filename, nodes_per_getaddr_filenames):
+    with open(exported_nodes_filename, 'r') as f:
+        exported_nodes = json.load(f)
+    nodes_per_getaddr = defaultdict(set)
+    for filename in nodes_per_getaddr_filenames:
+            with bz2.open(filename, 'rb') as f:
+                tmp = pickle.load(f)
+                for parent, nodes in tmp.items():
+                    nodes_per_getaddr[parent].update(nodes)
+    nodes_per_getaddr_filtered = defaultdict(set)
+    for node_info in exported_nodes:
+        node = f'{node_info[0]}-{node_info[1]}-{node_info[5]}'
+        if node in nodes_per_getaddr:
+            nodes_per_getaddr_filtered[node].update(nodes_per_getaddr[node])
+    occurences = Counter()
+    for parent, nodes in nodes_per_getaddr_filtered.items():
+        for node in nodes:
+            occurences[node] += 1
+    df = pd.DataFrame(occurences.most_common()[::-1], columns=['IP', 'Occurrences'])
+    top = 1000
+    print(f'Number of exported nodes : {len(exported_nodes)}, '
+          f'Number of parent nodes : {len(nodes_per_getaddr_filtered.keys())}, '
+          f'Number of IP : {len(occurences.keys())}')
+    ip_in_export = 0
+    ip_not_in_export = 0
+    for _, ip, _ in df[50000:-1000].itertuples():#df[:-top-1:-1].itertuples():
+        if ip in nodes_per_getaddr_filtered:
+            ip_in_export += 1
+        else:
+            ip_not_in_export += 1
+    print(f'In top {top}, number of IP in export : {ip_in_export}, '
+          f'number of ip not in export : {ip_not_in_export}')
+    ax = sns.relplot(edgecolor='none', x=df.index, y='Occurrences', data=df)
+    ax.set(xlabel='Unique IP index', ylabel='Occurrences')
     plt.show()
 
 
@@ -539,7 +621,7 @@ def main(argv):
     sns.set()
     sns.set_style("darkgrid", {"xtick.major.size": 3})
     # up_nodes_per_sec(argv[1:])
-    # addr_per_node(argv[1], argv[2:])#:-1]), argv[-1])
+    # addr_per_node(argv[1], argv[2:-1], argv[-1])
     # display_addr_per_node(argv[1])
     # client_distribution_addr_per_node(argv[1], argv[2], int(argv[3]), int(argv[4]), argv[5])
     # churn(argv[1:-1], ChurnPeriod.ONEHOUR, argv[-1])
@@ -551,7 +633,9 @@ def main(argv):
     # number_of_nodes(argv[1:]) 
     # client_distribution(argv[1], argv[2])
     # vulnerable_nodes_number(argv[1], argv[2])
-    temporal_distribution_clients(argv[1])
+    # temporal_distribution_clients(argv[1])
+    # ip_occurrences_in_getaddr(argv[1:])
+    ip_occurrences_in_getaddr_pickle(argv[1], argv[2:])
 
 
 if __name__ == "__main__":
