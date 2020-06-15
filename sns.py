@@ -161,6 +161,7 @@ def churn(json_dirs: List[str], period: ChurnPeriod, result_file: str):
             day = day.split('-')[0]
         else:
             day = day.replace('-', ' ')[:-3]
+            day = day[6:8] + 'th' + day[8:]
         # day = day[:4] + '-' + day[4:6] + '-' + day[6:]
         print(day)
         for _ in range(files_number):
@@ -215,8 +216,9 @@ def display_churn(json_file: str, nth_x_axis=1, mondays=False):
         df.rename(index=lambda s: s.replace('–', ', '), inplace=True)
     print(df)
     fig, ax = plt.subplots()
-    sns.lineplot(data=df, ax=ax)
+    sns.lineplot(data=df, ax=ax, sort=False)
     ax.set(xlabel='Time', ylabel='Rate (%)')
+    print(len(ax.get_xticklabels()))
     last = len(ax.get_xticklabels()) - 1
     # print(last)
     # for ind, label in enumerate(ax.get_xticklabels()):
@@ -530,11 +532,11 @@ def temporal_distribution_clients(client_distrib_csv_filename):
     print(f"Total: {total}")
     df = pd.DataFrame.from_dict(result, orient="index", columns=["Count"])
     df = df[::-1]  # reverse order
-    df = df[8:]  # Starts when it is significant
+    df = df[0:8]  # Starts when it is significant
     print(df)
     fig, ax = plt.subplots()
     sns.barplot(x=df.index, y='Count', data=df, ax=ax, color="cornflowerblue")
-    ax.set(xlabel='Release date', ylabel='# of nodes', ylim=(0, 3000))
+    ax.set(xlabel='Release date', ylabel='# of nodes', ylim=(0, 50))
     fig.autofmt_xdate()
     plt.show()
 
@@ -580,7 +582,7 @@ def ip_occurrences_in_getaddr(nodes_per_getaddr_filenames):
     # plt.show()
 
 
-def ip_occurrences_in_getaddr_pickle(exported_nodes_filename, nodes_per_getaddr_filenames):
+def ip_occurrences_in_getaddr_pickle(exported_nodes_filename, nodes_per_getaddr_filenames, only_reachable=False):
     with open(exported_nodes_filename, 'r') as f:
         exported_nodes = json.load(f)
     nodes_per_getaddr = defaultdict(set)
@@ -597,24 +599,69 @@ def ip_occurrences_in_getaddr_pickle(exported_nodes_filename, nodes_per_getaddr_
     occurences = Counter()
     for parent, nodes in nodes_per_getaddr_filtered.items():
         for node in nodes:
-            occurences[node] += 1
+            if only_reachable:
+                if node in nodes_per_getaddr_filtered:
+                    occurences[node] += 1
+            else:
+                occurences[node] += 1
     df = pd.DataFrame(occurences.most_common()[::-1], columns=['IP', 'Occurrences'])
     top = 1000
     print(f'Number of exported nodes : {len(exported_nodes)}, '
           f'Number of parent nodes : {len(nodes_per_getaddr_filtered.keys())}, '
           f'Number of IP : {len(occurences.keys())}')
-    ip_in_export = 0
-    ip_not_in_export = 0
-    for _, ip, _ in df[50000:-1000].itertuples():#df[:-top-1:-1].itertuples():
-        if ip in nodes_per_getaddr_filtered:
-            ip_in_export += 1
-        else:
-            ip_not_in_export += 1
-    print(f'In top {top}, number of IP in export : {ip_in_export}, '
-          f'number of ip not in export : {ip_not_in_export}')
+    if not only_reachable:
+        ip_in_export = 0
+        ip_not_in_export = 0
+        for _, ip, _ in df[50000:-1000].itertuples():#df[:-top-1:-1].itertuples():
+            if ip in nodes_per_getaddr_filtered:
+                ip_in_export += 1
+            else:
+                ip_not_in_export += 1
+        print(f'In top {top}, number of IP in export : {ip_in_export}, '
+            f'number of ip not in export : {ip_not_in_export}')
+    if only_reachable:
+        top = 100
+        print(df[-top:])
     ax = sns.relplot(edgecolor='none', x=df.index, y='Occurrences', data=df)
     ax.set(xlabel='Unique IP index', ylabel='Occurrences')
     plt.show()
+
+
+# def reachable_ip_occurrences_in_getaddr_pickle(exported_nodes_filename, nodes_per_getaddr_filenames):
+#     with open(exported_nodes_filename, 'r') as f:
+#         exported_nodes = json.load(f)
+#     nodes_per_getaddr = defaultdict(set)
+#     for filename in nodes_per_getaddr_filenames:
+#             with bz2.open(filename, 'rb') as f:
+#                 tmp = pickle.load(f)
+#                 for parent, nodes in tmp.items():
+#                     nodes_per_getaddr[parent].update(nodes)
+#     nodes_per_getaddr_filtered = defaultdict(set)
+#     for node_info in exported_nodes:
+#         node = f'{node_info[0]}-{node_info[1]}-{node_info[5]}'
+#         if node in nodes_per_getaddr:
+#             nodes_per_getaddr_filtered[node].update(nodes_per_getaddr[node])
+#     occurences = Counter()
+#     for parent, nodes in nodes_per_getaddr_filtered.items():
+#         for node in nodes:
+#             occurences[node] += 1
+#     df = pd.DataFrame(occurences.most_common()[::-1], columns=['IP', 'Occurrences'])
+#     top = 1000
+#     print(f'Number of exported nodes : {len(exported_nodes)}, '
+#           f'Number of parent nodes : {len(nodes_per_getaddr_filtered.keys())}, '
+#           f'Number of IP : {len(occurences.keys())}')
+#     ip_in_export = 0
+#     ip_not_in_export = 0
+#     for _, ip, _ in df[50000:-1000].itertuples():#df[:-top-1:-1].itertuples():
+#         if ip in nodes_per_getaddr_filtered:
+#             ip_in_export += 1
+#         else:
+#             ip_not_in_export += 1
+#     print(f'In top {top}, number of IP in export : {ip_in_export}, '
+#           f'number of ip not in export : {ip_not_in_export}')
+#     ax = sns.relplot(edgecolor='none', x=df.index, y='Occurrences', data=df)
+#     ax.set(xlabel='Unique IP index', ylabel='Occurrences')
+#     plt.show()
 
 
 def main(argv):
@@ -633,9 +680,9 @@ def main(argv):
     # number_of_nodes(argv[1:]) 
     # client_distribution(argv[1], argv[2])
     # vulnerable_nodes_number(argv[1], argv[2])
-    # temporal_distribution_clients(argv[1])
+    temporal_distribution_clients(argv[1])
     # ip_occurrences_in_getaddr(argv[1:])
-    ip_occurrences_in_getaddr_pickle(argv[1], argv[2:])
+    # ip_occurrences_in_getaddr_pickle(argv[1], argv[2:], True)
 
 
 if __name__ == "__main__":

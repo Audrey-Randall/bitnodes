@@ -93,7 +93,7 @@ def up_diff():
 RT = RepeatedTimer(5, up_diff)
 
 
-def enumerate_node(redis_pipe, addr_msgs, now):
+def enumerate_node(parent, redis_pipe, addr_msgs, now):
     """
     Adds all peering nodes with age <= max. age into the crawl set.
     """
@@ -104,9 +104,12 @@ def enumerate_node(redis_pipe, addr_msgs, now):
     if len(addr_msgs) == 0:
         return (None, -1, excluded)
 
+    ip = '176.99.198.100'
     for addr_msg in addr_msgs:
         if 'addr_list' in addr_msg:
             for peer in addr_msg['addr_list']:
+                if peer['ipv4'] == ip:
+                    logging.info(f"From {parent}, got {ip}'s timestamp = {peer['timestamp']}")
                 age = now - peer['timestamp']  # seconds
 
                 if age >= 0 and age <= CONF['max_age']:
@@ -200,7 +203,7 @@ def connect(redis_conn, key):
         redis_pipe.setex(height_key, CONF['max_age'],
                          version_msg.get('height', 0))
         now = int(time.time())
-        (peers, peers_number, excluded) = enumerate_node(redis_pipe, addr_msgs, now)
+        (peers, peers_number, excluded) = enumerate_node(address, redis_pipe, addr_msgs, now)
         REDIS_CONN_NO_DECODE.rpush('nodes_per_getaddr', pickle.dumps((key[5:], peers)))
         REDIS_CONN_NO_DECODE.rpush('nodes_per_getaddr_number', pickle.dumps((key[5:], peers_number)))
         logging.debug("%s Peers: %d (Excluded: %d)",
