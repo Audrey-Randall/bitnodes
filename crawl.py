@@ -104,12 +104,9 @@ def enumerate_node(parent, redis_pipe, addr_msgs, now):
     if len(addr_msgs) == 0:
         return (None, -1, excluded)
 
-    ip = '176.99.198.100'
     for addr_msg in addr_msgs:
         if 'addr_list' in addr_msg:
             for peer in addr_msg['addr_list']:
-                if peer['ipv4'] == ip:
-                    logging.info(f"From {parent}, got {ip}'s timestamp = {peer['timestamp']}")
                 age = now - peer['timestamp']  # seconds
 
                 if age >= 0 and age <= CONF['max_age']:
@@ -395,13 +392,13 @@ def task():
     Assigned to a worker to retrieve (pop) a node from the crawl set and
     attempt to establish connection with a new node.
     """
-    redis_conn = new_redis_conn(db=CONF['db'])
+    # redis_conn = new_redis_conn(db=CONF['db'])
 
     while True:
         while REDIS_CONN.get('crawl:master:state') != "running":
             gevent.sleep(CONF['socket_timeout'])
 
-        node = redis_conn.spop('pending')  # Pop random node from set
+        node = REDIS_CONN.spop('pending')  # Pop random node from set
         if node is None:
             gevent.sleep(1)
             continue
@@ -423,12 +420,12 @@ def task():
         # Check if prefix has hit its limit
         if ":" in node[0] and CONF['ipv6_prefix'] < 128:
             cidr = ip_to_network(node[0], CONF['ipv6_prefix'])
-            nodes = redis_conn.incr('crawl:cidr:{}'.format(cidr))
+            nodes = REDIS_CONN.incr('crawl:cidr:{}'.format(cidr))
             if nodes > CONF['nodes_per_ipv6_prefix']:
                 logging.debug("CIDR %s: %d", cidr, nodes)
                 continue
 
-        connect(redis_conn, key)
+        connect(REDIS_CONN, key)
 
 
 def set_pending():
