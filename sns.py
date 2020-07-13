@@ -106,7 +106,7 @@ def geo_distribution_per_hour(json_dir: str):
     print(df)
     fig, ax = plt.subplots()
     sns.lineplot(data=df, ax=ax)
-    ax.set(xlabel='Time (in UTC)', ylabel='Number of nodes')
+    ax.set(xlabel='Time (in UTC)', ylabel='\# of nodes')
     last = len(ax.get_xticklabels()) - 1
     for ind, label in enumerate(ax.get_xticklabels()):
         if ind == last:
@@ -118,6 +118,7 @@ def geo_distribution_per_hour(json_dir: str):
     ax.legend(loc='lower left', bbox_to_anchor=(0.65, 0.7))
     ax.set_ylim(ymin=0)
     fig.autofmt_xdate()
+    plt.rcParams.update({'font.size': 22})
     plt.show()
 
 
@@ -217,7 +218,7 @@ def display_churn(json_file: str, nth_x_axis=1, mondays=False):
     print(df)
     fig, ax = plt.subplots()
     sns.lineplot(data=df, ax=ax, sort=False)
-    ax.set(xlabel='Time', ylabel='Rate (%)')
+    ax.set(xlabel='Time', ylabel='Rate (\%)')
     print(len(ax.get_xticklabels()))
     last = len(ax.get_xticklabels()) - 1
     # print(last)
@@ -348,10 +349,15 @@ def addr_per_node(export_json_file: str, csv_files: List[str], result_file=None)
         i += 1 if node[2] == -1 else 0
         j += 1 if node[2] == 0 else 0
     print(f"In crawl csv file, size : {len(data_csv.index)}, number of -1 : {i}, 0 : {j}")
-
-    data = defaultdict(list)
+    
+    # data = defaultdict(list)
+    data = defaultdict(int)
     for crawl_node in data_csv.values:
-        data[crawl_node[1]].append(crawl_node[2])
+        # data[crawl_node[1]].append(crawl_node[2])
+        if crawl_node[2] > data[crawl_node[1]]:
+            data[crawl_node[1]] = crawl_node[2]
+        elif crawl_node[2] == -1 and data[crawl_node[1]] <= 0:
+            data[crawl_node[1]] = crawl_node[2]
 
     with open(export_json_file, 'r') as f:
         data_json = json.load(f)
@@ -363,8 +369,11 @@ def addr_per_node(export_json_file: str, csv_files: List[str], result_file=None)
         exported_node_formatted = (
             f"{exported_node[0]}-{exported_node[1]}-{exported_node[5]}"
         )
-        if len(data[exported_node_formatted]) > 0:
-            result[i] = max(data[exported_node_formatted])
+        # if len(data[exported_node_formatted]) > 0:
+        if data[exported_node_formatted]:
+            result[i] = data[exported_node_formatted]
+            if 2400 <= data[exported_node_formatted] <= 2600:
+                print(f"2500 addresses : {exported_node_formatted}")
             added = True
         if added:
             i += 1
@@ -374,7 +383,7 @@ def addr_per_node(export_json_file: str, csv_files: List[str], result_file=None)
     else:
         df = pd.DataFrame.from_dict(result, orient='index', columns=[None])
         print(df)
-        h = i = j = k = m = n = 0
+        h = i = j = k = m = n = o = 0
         for node in df.values:
             h += 1 if node[0] == -2 else 0
             i += 1 if node[0] == -1 else 0
@@ -382,11 +391,12 @@ def addr_per_node(export_json_file: str, csv_files: List[str], result_file=None)
             k += 1 if node[0] <= 50 else 0
             m += 1 if node[0] <= 25 else 0
             n += 1 if node[0] <= 12 else 0
+            o += 1 if 980 <= node[0] <= 1000 else 0
         print(f"In crawl csv file filtered by export json file, size : {len(df.index)},"
-              f"number of -2 : {h}, -1 : {i}, 0 : {j}, <= 50 : {k}, <= 25 : {m}, <= 12 : {n}")
+              f"number of -2 : {h}, -1 : {i}, 0 : {j}, <= 50 : {k}, <= 25 : {m}, <= 12 : {n}, 980 <= node <= 1000 : {o}")
 
-        ax = sns.relplot(edgecolor='none', data=df)
-        ax.set(xlabel='Node index', ylabel='Number of addresses')
+        ax = sns.scatterplot(edgecolor='none', data=df)
+        ax.set(xlabel='Node index', ylabel='\# of addresses')
         plt.show()
 
 
@@ -445,7 +455,7 @@ def up_nodes_per_sec(csv_files: list):
         data_to_add = pd.read_csv(csv_file, names=[os.path.splitext(csv_file)[0].split('_')[-1]])
         data = data.join(data_to_add, how='outer')
     fig, ax = plt.subplots()
-    ax.set(xlabel='Elapsed time (in seconds)', ylabel='Number of nodes')
+    ax.set(xlabel='Elapsed time (in seconds)', ylabel='\# of nodes')
     sns.lineplot(data=data, ax=ax)
     # fig.autofmt_xdate()
     plt.show()
@@ -532,11 +542,11 @@ def temporal_distribution_clients(client_distrib_csv_filename):
     print(f"Total: {total}")
     df = pd.DataFrame.from_dict(result, orient="index", columns=["Count"])
     df = df[::-1]  # reverse order
-    df = df[0:8]  # Starts when it is significant
+    df = df[8:]  # Starts when it is significant
     print(df)
     fig, ax = plt.subplots()
     sns.barplot(x=df.index, y='Count', data=df, ax=ax, color="cornflowerblue")
-    ax.set(xlabel='Release date', ylabel='# of nodes', ylim=(0, 50))
+    ax.set(xlabel='Release date', ylabel='\# of nodes', ylim=(0, 3000))
     fig.autofmt_xdate()
     plt.show()
 
@@ -582,20 +592,22 @@ def ip_occurrences_in_getaddr(nodes_per_getaddr_filenames):
     # plt.show()
 
 
-def ip_occurrences_in_getaddr_pickle(exported_nodes_filename, nodes_per_getaddr_filenames, only_reachable=False):
+def ip_occurrences_in_getaddr_pickle(exported_nodes_filename, nodes_per_getaddr_filenames,
+                                     only_reachable=False, result_file=None):
     with open(exported_nodes_filename, 'r') as f:
         exported_nodes = json.load(f)
     nodes_per_getaddr = defaultdict(set)
     for filename in nodes_per_getaddr_filenames:
-            with bz2.open(filename, 'rb') as f:
-                tmp = pickle.load(f)
-                for parent, nodes in tmp.items():
-                    nodes_per_getaddr[parent].update(nodes)
+        with bz2.open(filename, 'rb') as f:
+            tmp = pickle.load(f)
+            for parent, nodes in tmp.items():
+                nodes_per_getaddr[parent].update(nodes)
     nodes_per_getaddr_filtered = defaultdict(set)
     for node_info in exported_nodes:
         node = f'{node_info[0]}-{node_info[1]}-{node_info[5]}'
         if node in nodes_per_getaddr:
             nodes_per_getaddr_filtered[node].update(nodes_per_getaddr[node])
+            del nodes_per_getaddr[node]
     occurences = Counter()
     for parent, nodes in nodes_per_getaddr_filtered.items():
         for node in nodes:
@@ -604,25 +616,41 @@ def ip_occurrences_in_getaddr_pickle(exported_nodes_filename, nodes_per_getaddr_
                     occurences[node] += 1
             else:
                 occurences[node] += 1
-    df = pd.DataFrame(occurences.most_common()[::-1], columns=['IP', 'Occurrences'])
-    top = 1000
-    print(f'Number of exported nodes : {len(exported_nodes)}, '
-          f'Number of parent nodes : {len(nodes_per_getaddr_filtered.keys())}, '
-          f'Number of IP : {len(occurences.keys())}')
-    if not only_reachable:
-        ip_in_export = 0
-        ip_not_in_export = 0
-        for _, ip, _ in df[50000:-1000].itertuples():#df[:-top-1:-1].itertuples():
-            if ip in nodes_per_getaddr_filtered:
-                ip_in_export += 1
-            else:
-                ip_not_in_export += 1
-        print(f'In top {top}, number of IP in export : {ip_in_export}, '
-            f'number of ip not in export : {ip_not_in_export}')
-    if only_reachable:
+    if result_file is not None:
+        with open(result_file, 'wb') as f:
+            pickle.dump(occurences, f, protocol=pickle.HIGHEST_PROTOCOL)
+    else:
+        df = pd.DataFrame(occurences.most_common()[::-1], columns=['IP', 'Occurrences'])
+        top = 150000
+        print(f'Number of exported nodes : {len(exported_nodes)}, '
+              f'Number of parent nodes : {len(nodes_per_getaddr_filtered.keys())}, '
+              f'Number of IP : {len(occurences.keys())}')
+        if not only_reachable:
+            ip_in_export = 0
+            ip_not_in_export = 0
+            for _, ip, _ in df[:-top-1:-1].itertuples():#df[50000:-1000].itertuples():
+                if ip in nodes_per_getaddr_filtered:
+                    ip_in_export += 1
+                else:
+                    ip_not_in_export += 1
+            print(f'In top {top}, number of IP in export : {ip_in_export}, '
+                f'number of ip not in export : {ip_not_in_export}')
+        # if only_reachable:
         top = 100
         print(df[-top:])
-    ax = sns.relplot(edgecolor='none', x=df.index, y='Occurrences', data=df)
+        ax = sns.lineplot(x=df.index, y='Occurrences', data=df, linewidth=2.5)
+        ax.set(xlabel='Unique IP index', ylabel='Occurrences')
+        plt.show()
+
+
+def display_ip_occurence(ip_occurrence_pickle_file):
+    with open(ip_occurrence_pickle_file, 'rb') as f:
+        occurences = pickle.load(f)
+    df = pd.DataFrame(occurences.most_common()[::-1], columns=['IP', 'Occurrences'])
+    top = 100
+    print(df[-top:])
+    # df = df[::1000]
+    ax = sns.lineplot(x=df.index, y='Occurrences', data=df, linewidth=2.5)
     ax.set(xlabel='Unique IP index', ylabel='Occurrences')
     plt.show()
 
@@ -667,23 +695,40 @@ def ip_occurrences_in_getaddr_pickle(exported_nodes_filename, nodes_per_getaddr_
 def main(argv):
     sns.set()
     sns.set_style("darkgrid", {"xtick.major.size": 3})
+    sns.set_context("paper", rc={'font.size': 12, "axes.titlesize": 12, "axes.labelsize": 14, 
+                                 'legend.fontsize': 12, 'xtick.labelsize': 12, 'ytick.labelsize': 12
+                                 })
+    plt.rc('text', usetex=True)
+    plt.rc('font', family='serif')
+    # plt.rcParams['font.serif'] = ['Times']
     # up_nodes_per_sec(argv[1:])
-    # addr_per_node(argv[1], argv[2:-1], argv[-1])
+    # addr_per_node(argv[1], argv[2:])#, argv[-1])
     # display_addr_per_node(argv[1])
     # client_distribution_addr_per_node(argv[1], argv[2], int(argv[3]), int(argv[4]), argv[5])
     # churn(argv[1:-1], ChurnPeriod.ONEHOUR, argv[-1])
-    # display_churn(argv[1], 16, False)
+    display_churn(argv[1], 16, False)
     # distinct_ip(argv[1:])
     # geo_distribution_per_hour(argv[1])
     # geo_distribution_by_continent(argv[1], countries_codes.Continent.EUROPE)
     # geo_distribution_by_continent_several_days(argv[1:], countries_codes.Continent.NORTH_AMERICA)
-    # number_of_nodes(argv[1:]) 
+    # number_of_nodes(argv[1:])
     # client_distribution(argv[1], argv[2])
     # vulnerable_nodes_number(argv[1], argv[2])
-    temporal_distribution_clients(argv[1])
+    # temporal_distribution_clients(argv[1])
     # ip_occurrences_in_getaddr(argv[1:])
-    # ip_occurrences_in_getaddr_pickle(argv[1], argv[2:], True)
-
+    # ip_occurrences_in_getaddr_pickle(argv[1], argv[2:-1], True)#, argv[-1])
+    # display_ip_occurence(argv[1])
 
 if __name__ == "__main__":
     main(sys.argv)
+
+# up_nodes_per_sec 20200207-00:35:07, 20200210-09:58:57, 20200217 16:03:01,
+# 20200223-22:46:43, 20200302-23:58:36
+# temporal_distribution_clients client_distrib_20200302-16:02:51.csv
+# temporal_distribution_clients client_distrib_20200607-16:01:51.csv
+# geo_distribution_per_hour export/20200215
+# display_churn churn_all_period_1day_window , 12 x labels, y-axis 0-20
+# display_churn churn_20200226-27_onehour_window , 16 x labels, y-axis 0-20
+# addr_per_node(argv[1], argv[2:]) 20200709-17\:07\:36.json, nodes_per_getADDR_20200709-1{2,3,4,5,6,7,8,9}\:*.csv
+# ip_occurrences_in_getaddr_pickle only reachable 20200709-17\:07\:36
+# ip_occurrences_in_getaddr_pickle not only reachable 20200709-17\:07\:36
