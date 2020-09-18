@@ -45,7 +45,7 @@ import sys
 import time
 import statistics
 import pickle
-import bz2
+import gzip
 from base64 import b32decode
 from binascii import hexlify, unhexlify
 from collections import Counter
@@ -71,6 +71,7 @@ redis.connection.socket = gevent.socket
 REDIS_CONN = None
 REDIS_CONN_NO_DECODE = None
 CONF = {}
+NODES_PER_GETADDR = defaultdict(list)
 UP_SIZE = 0
 UP_NODES_PER_SEC = []
 UP_NODES_INDEX = 0
@@ -93,16 +94,16 @@ def up_diff():
 RT = RepeatedTimer(5, up_diff)
 
 
-def enumerate_node(parent, redis_pipe, addr_msgs, now):
+def enumerate_node(redis_pipe, addr_msgs, now):
     """
     Adds all peering nodes with age <= max. age into the crawl set.
     """
-    peers_number = 0
+    global NODES_INDEX
     peers = set()
     excluded = 0
 
     if len(addr_msgs) == 0:
-        return (None, -1, excluded)
+        return (None, excluded)
 
     for addr_msg in addr_msgs:
         if 'addr_list' in addr_msg:
@@ -113,6 +114,7 @@ def enumerate_node(parent, redis_pipe, addr_msgs, now):
                     address = peer['ipv4'] or peer['ipv6'] or peer['onion']
                     port = peer['port'] if peer['port'] > 0 else CONF['port']
                     services = peer['services']
+                    timestamp = peer['timestamp'] # not used yet
                     if not address:
                         continue
                     if is_excluded(address):
@@ -122,10 +124,9 @@ def enumerate_node(parent, redis_pipe, addr_msgs, now):
                     redis_pipe.sadd('pending', (address, port, services))
                     redis_pipe.sadd('all_nodes_bis', f'node:{address}-{port}-{services}')
                     peers.add(f'{address}-{port}-{services}')
-                    peers_number += 1
-                    if peers_number >= CONF['peers_per_node']:
-                        return (peers, peers_number, excluded)
-    return (peers, peers_number, excluded)
+                    if len(peers) >= CONF['peers_per_node']:
+                        return (peers, excluded)
+    return (peers, excluded)
 
 
 def connect(redis_conn, key):
@@ -200,12 +201,12 @@ def connect(redis_conn, key):
         redis_pipe.setex(height_key, CONF['max_age'],
                          version_msg.get('height', 0))
         now = int(time.time())
-        (peers, peers_number, excluded) = enumerate_node(address, redis_pipe, addr_msgs, now)
+        (peers, excluded) = enumerate_node(redis_pipe, addr_msgs, now)
+        # REDIS_CONN_NO_DECODE.rpush('nodes_per_getaddr', pickle.dumps((key[5:], peers)))
         REDIS_CONN_NO_DECODE.rpush('nodes_per_getaddr', pickle.dumps((key[5:], peers)))
-        REDIS_CONN_NO_DECODE.rpush('nodes_per_getaddr_number', pickle.dumps((key[5:], peers_number)))
+        # NODES_PER_GETADDR[key[5:]].append(peers)
         logging.debug("%s Peers: %d (Excluded: %d)",
-                      conn.to_addr, peers_number,
-                      excluded)
+                      conn.to_addr, peers, excluded)
         redis_pipe.set(key, "")
         redis_pipe.sadd('up', key)
     conn.close()
@@ -242,36 +243,24 @@ def dump(date, nodes):
     return Counter([node[-1] for node in json_data]).most_common(1)[0][0]
 
 
-def dump_nodes_per_getaddr_number(nodes, date):
+def dump_nodes_per_getaddr(nodes, date):
     """
     Dumps the number of nodes potential nodes retrieved from the GETADDR
     messages
     """
-    output = os.path.join(CONF['crawl_dir'], f'nodes_per_getADDR_{date}.csv')
+    output = os.path.join(CONF['crawl_dir'], f'nodes_per_getADDR_{date}.gz')
     nodes_per_getaddr = defaultdict(list)
-    for nodes_addr_number in nodes:
-        node, addr_number = pickle.loads(nodes_addr_number)
-        nodes_per_getaddr[node].append(addr_number)
-    with open(output, "w", newline='') as f:
-        writer = csv.writer(f)
-        for i, (k, v) in enumerate(nodes_per_getaddr.items()):
-            writer.writerow([i+1, k, max(v), round(statistics.mean(v)), *v])
-    logging.info(f"Wrote {output}")
-
-
-def dump_nodes_per_getaddr(nodes, date):
-    """
-    Dumps the nodes retrieved from the GETADDR messages from all the crawled
-    nodes
-    """
-    output = os.path.join(CONF['crawl_dir'], f'nodes_per_getADDR_{date}.pickle.bz2')
-    nodes_per_getaddr = defaultdict(set)
-    for nodes_addr_number in nodes:
-        parent_node, nodes_set = pickle.loads(nodes_addr_number)
-        if nodes_set is not None:
-            nodes_per_getaddr[parent_node].update(nodes_set)
-    with bz2.open(output, "wb") as f:
-        pickle.dump(nodes_per_getaddr, f, pickle.HIGHEST_PROTOCOL)
+    for nodes_addr in nodes:
+        node, addrs = pickle.loads(nodes_addr)
+        if addrs is not None:
+            nodes_per_getaddr[node].extend(addrs)
+    
+    with gzip.GzipFile(output, "w") as f:
+        f.write(json.dumps(nodes_per_getaddr).encode('utf8'))
+        # json.dump(nodes_per_getaddr, f)
+        # writer = csv.writer(f)
+        # for i, (k, v) in enumerate(nodes_per_getaddr.items()):
+        #     writer.writerow([i+1, k, max(v), round(statistics.mean(v)), *v])
     logging.info(f"Wrote {output}")
 
 
@@ -307,12 +296,10 @@ def restart(timestamp):
     all_nodes = REDIS_CONN.scard('all_nodes')
     all_nodes_bis = REDIS_CONN.scard('all_nodes_bis')
     nodes_per_getaddr = REDIS_CONN_NO_DECODE.lrange('nodes_per_getaddr', 0, -1)
-    nodes_per_getaddr_number = REDIS_CONN_NO_DECODE.lrange('nodes_per_getaddr_number', 0, -1)
     redis_pipe.delete('up')
     redis_pipe.delete('all_nodes')
     redis_pipe.delete('all_nodes_bis')
     redis_pipe.delete('nodes_per_getaddr')
-    redis_pipe.delete('nodes_per_getaddr_number')
 
     for node in nodes:
         (address, port, services) = node[5:].split("-", 2)
@@ -348,7 +335,6 @@ def restart(timestamp):
     date = datetime.utcfromtimestamp(timestamp).replace(tzinfo=timezone.utc).\
         astimezone(tz=None).strftime('%Y%m%d-%H:%M:%S')
     dump_upnodes_per_second(date)
-    dump_nodes_per_getaddr_number(nodes_per_getaddr_number, date)
     dump_nodes_per_getaddr(nodes_per_getaddr, date)
     height = dump(date, nodes)
     REDIS_CONN.set('height', height)
@@ -392,13 +378,13 @@ def task():
     Assigned to a worker to retrieve (pop) a node from the crawl set and
     attempt to establish connection with a new node.
     """
-    # redis_conn = new_redis_conn(db=CONF['db'])
+    redis_conn = new_redis_conn(db=CONF['db'])
 
     while True:
         while REDIS_CONN.get('crawl:master:state') != "running":
             gevent.sleep(CONF['socket_timeout'])
 
-        node = REDIS_CONN.spop('pending')  # Pop random node from set
+        node = redis_conn.spop('pending')  # Pop random node from set
         if node is None:
             gevent.sleep(1)
             continue
@@ -416,16 +402,16 @@ def task():
                                                              node[3])
                 REDIS_CONN.sadd('up', node_with_parent)
             continue
-
+        
         # Check if prefix has hit its limit
         if ":" in node[0] and CONF['ipv6_prefix'] < 128:
             cidr = ip_to_network(node[0], CONF['ipv6_prefix'])
-            nodes = REDIS_CONN.incr('crawl:cidr:{}'.format(cidr))
+            nodes = redis_conn.incr('crawl:cidr:{}'.format(cidr))
             if nodes > CONF['nodes_per_ipv6_prefix']:
                 logging.debug("CIDR %s: %d", cidr, nodes)
                 continue
 
-        connect(REDIS_CONN, key)
+        connect(redis_conn, key)
 
 
 def set_pending():
@@ -659,9 +645,6 @@ def main(argv):
         redis_pipe = REDIS_CONN.pipeline()
         redis_pipe.delete('up')
         redis_pipe.delete('all_nodes')
-        redis_pipe.delete('all_nodes_bis')
-        redis_pipe.delete('nodes_per_getaddr')
-        redis_pipe.delete('nodes_per_getaddr_number')
         for key in get_keys(REDIS_CONN, 'node:*'):
             redis_pipe.delete(key)
         for key in get_keys(REDIS_CONN, 'crawl:cidr:*'):
