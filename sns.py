@@ -691,6 +691,44 @@ def display_ip_occurence(ip_occurrence_pickle_file):
 #     ax.set(xlabel='Unique IP index', ylabel='Occurrences')
 #     plt.show()
 
+def display_nodes_per_getADDR_overtime(json_file):
+    #noeuds intéressants du 20200920 :
+    #   - 45.77.247.65-56792-1
+    #   - 79.98.105.138-8333-77
+    #   - 89.238.166.235-5158-77
+    #   - 51.158.153.210-8333-1
+    #   - 94.23.154.171-8333-77
+    with open(json_file, 'r') as f:
+        data = json.load(f)
+    drop_list = [column for column in data.keys() if data[column][0] < 700]
+    # print(drop_list)
+    df = pd.DataFrame.from_dict(data, orient='index').transpose()
+    print(df)
+    sums = list(df.sum())
+    print(statistics.mean(sums))
+    print(statistics.median(sums))
+    df.drop(drop_list, axis=1, inplace=True)
+    df = df[["45.77.247.65-56792-1", "79.98.105.138-8333-77", "89.238.166.235-5158-77", "51.158.153.210-8333-1", "94.23.154.171-8333-77"]]
+    print(df)
+    sums = list(df.sum())
+    print(sums)
+    all_percents = [list(df.iloc[j:i, :].sum()) for i, j in zip(range(10, 70, 10), range(0, 60, 10))]
+    requests = 10
+    for percents in (all_percents):
+        print(f"Pourcentage de nouveaux noeuds après {requests} requêtes")
+        for i, percent in enumerate(percents):
+            print(round(percent / sums[i] * 100, 2), end=',')
+        print()
+        requests += 10
+    fig, ax = plt.subplots()
+    ax.set(xlabel='\# GETADDR requests', ylabel='\# of new nodes')
+    g = sns.lineplot(data=df, ax=ax, dashes=False)
+    new_labels = ['node 1', 'node 2', 'node 3', 'node 4', 'node 5']
+    for t, l in zip(g.legend_.texts, new_labels):
+        t.set_text(l)
+    # fig.autofmt_xdate()
+    plt.show()
+
 
 def main(argv):
     sns.set()
@@ -706,7 +744,7 @@ def main(argv):
     # display_addr_per_node(argv[1])
     # client_distribution_addr_per_node(argv[1], argv[2], int(argv[3]), int(argv[4]), argv[5])
     # churn(argv[1:-1], ChurnPeriod.ONEHOUR, argv[-1])
-    display_churn(argv[1], 16, False)
+    # display_churn(argv[1], 16, False)
     # distinct_ip(argv[1:])
     # geo_distribution_per_hour(argv[1])
     # geo_distribution_by_continent(argv[1], countries_codes.Continent.EUROPE)
@@ -718,6 +756,7 @@ def main(argv):
     # ip_occurrences_in_getaddr(argv[1:])
     # ip_occurrences_in_getaddr_pickle(argv[1], argv[2:-1], True)#, argv[-1])
     # display_ip_occurence(argv[1])
+    display_nodes_per_getADDR_overtime(argv[1])
 
 if __name__ == "__main__":
     main(sys.argv)
