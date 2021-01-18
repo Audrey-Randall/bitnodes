@@ -691,42 +691,48 @@ def display_ip_occurence(ip_occurrence_pickle_file):
 #     ax.set(xlabel='Unique IP index', ylabel='Occurrences')
 #     plt.show()
 
-def display_nodes_per_getADDR_overtime(json_file):
-    #noeuds intéressants du 20200920 :
-    #   - 45.77.247.65-56792-1
-    #   - 79.98.105.138-8333-77
-    #   - 89.238.166.235-5158-77
-    #   - 51.158.153.210-8333-1
-    #   - 94.23.154.171-8333-77
-    with open(json_file, 'r') as f:
-        data = json.load(f)
-    drop_list = [column for column in data.keys() if data[column][0] < 700]
-    # print(drop_list)
-    df = pd.DataFrame.from_dict(data, orient='index').transpose()
+
+def new_nodes_overtime_in_getaddr_requests(csvfilenames):
+    """
+    Number of new nodes in GETADDR responses.
+    Using our own deployed Bitcoin clients
+    """
+    dfs = []
+    for filename in csvfilenames:
+        with open(filename, 'r') as f:
+            dfs.append(pd.read_csv(f))
+    df = pd.concat(dfs, ignore_index=True)
     print(df)
-    sums = list(df.sum())
+    clients = ["node1", "node2", "node3", "node4", "node5"]
+    sums = []
+    for client in clients:
+        sum_entry = df.loc[df["parent node"] == client, 'new nodes nb'].sum()
+        sums.append(sum_entry)
+    print(sums)
     print(statistics.mean(sums))
     print(statistics.median(sums))
-    df.drop(drop_list, axis=1, inplace=True)
-    df = df[["45.77.247.65-56792-1", "79.98.105.138-8333-77", "89.238.166.235-5158-77", "51.158.153.210-8333-1", "94.23.154.171-8333-77"]]
-    print(df)
-    sums = list(df.sum())
-    print(sums)
-    all_percents = [list(df.iloc[j:i, :].sum()) for i, j in zip(range(10, 70, 10), range(0, 60, 10))]
-    requests = 10
-    for percents in (all_percents):
-        print(f"Pourcentage de nouveaux noeuds après {requests} requêtes")
-        for i, percent in enumerate(percents):
-            print(round(percent / sums[i] * 100, 2), end=',')
-        print()
-        requests += 10
+    step = 60
+    all_percents_per_node = []
+    for dataframe in dfs:
+        all_percents_per_node.append([dataframe.iloc[i:j, 2].sum() for i, j in zip(range(0, 300, step), range(step, 301, step))])
+    print(all_percents_per_node)
+    for i, percents in enumerate(all_percents_per_node):
+        requests = step
+        print(f"Node {i+1}")
+        total = 0
+        for percent in percents:
+            print(f"Percent of new nodes after {requests} GETADDR requests (node {i+1})")
+            p = round(percent / sums[i] * 100, 2)
+            total += p
+            print(f"{p}%")
+            requests += step
+        print(f"Total = {total}")
     fig, ax = plt.subplots()
     ax.set(xlabel='\# GETADDR requests', ylabel='\# of new nodes')
-    g = sns.lineplot(data=df, ax=ax, dashes=False)
-    new_labels = ['node 1', 'node 2', 'node 3', 'node 4', 'node 5']
-    for t, l in zip(g.legend_.texts, new_labels):
-        t.set_text(l)
-    # fig.autofmt_xdate()
+    sns.lineplot(data=df, x="getaddr request nb", y="new nodes nb",
+                 hue="parent node")
+    ax.set(xlabel='GETADDR request index', ylabel='\# of new nodes')
+    plt.legend(title='Nodes', labels=["Node 1", "Node 2", "Node 3", "Node 4", "Node 5"])
     plt.show()
 
 
@@ -756,7 +762,8 @@ def main(argv):
     # ip_occurrences_in_getaddr(argv[1:])
     # ip_occurrences_in_getaddr_pickle(argv[1], argv[2:-1], True)#, argv[-1])
     # display_ip_occurence(argv[1])
-    display_nodes_per_getADDR_overtime(argv[1])
+    # display_nodes_per_getADDR_overtime(argv[1])
+    new_nodes_overtime_in_getaddr_requests(argv[1:])
 
 
 if __name__ == "__main__":
@@ -770,7 +777,8 @@ if __name__ == "__main__":
 # display_churn churn_all_period_1day_window , 12 x labels, y-axis 0-20
 # display_churn churn_20200226-27_onehour_window , 16 x labels, y-axis 0-20
 # addr_per_node(argv[1], argv[2:]) 20200709-17\:07\:36.json, nodes_per_getADDR_20200709-1{2,3,4,5,6,7,8,9}\:*.csv
-# ip_occurrences_in_getaddr_pickle only reachable 20200709-17\:07\:36
-# ip_occurrences_in_getaddr_pickle not only reachable 20200709-17\:07\:36
+# ip_occurrences_in_getaddr_pickle only reachable 20200709-17\:07\:36 nodes_per_getADDR_20200709-1{6,7,8,9}*.pickle.bz2
+# ip_occurrences_in_getaddr_pickle not only reachable 20200709-17\:07\:36 nodes_per_getADDR_20200709-1{6,7,8,9}*.pickle.bz2
 # display_nodes_per_getADDR_overtime(nodes_per_getADDR_overtime-20200920.json)
 # nodes_per_getADDR_overtime-20200920.json fromn aggregate.py
+# new_nodes_overtime_in_getaddr_requests(topology_lhs/new_nodes_per_request_node*_20201209*)
