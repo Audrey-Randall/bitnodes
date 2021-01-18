@@ -129,7 +129,7 @@ def enumerate_node(redis_pipe, addr_msgs, now):
     return (peers, excluded)
 
 
-def connect(redis_conn, key):
+def connect(key):
     """
     Establishes connection with a node to:
     1) Send version message
@@ -141,11 +141,11 @@ def connect(redis_conn, key):
     handshake_msgs = []
     addr_msgs = []
 
-    redis_conn.set(key, "")  # Set Redis key for a new node
-    redis_conn.sadd('all_nodes', key)
+    REDIS_CONN.set(key, "")  # Set Redis key for a new node
+    REDIS_CONN.sadd('all_nodes', key)
     (address, port, services) = key[5:].split("-", 2)
     services = int(services)
-    height = redis_conn.get('height')
+    height = REDIS_CONN.get('height')
     if height:
         height = int(height)
 
@@ -171,7 +171,7 @@ def connect(redis_conn, key):
     except (ProtocolError, ConnectionError, socket.error) as err:
         logging.debug("%s: %s", conn.to_addr, err)
 
-    redis_pipe = redis_conn.pipeline()
+    redis_pipe = REDIS_CONN.pipeline()
     if len(handshake_msgs) > 0:
         try:
             conn.getaddr(block=False)
@@ -248,19 +248,21 @@ def dump_nodes_per_getaddr(nodes, date):
     Dumps the number of nodes potential nodes retrieved from the GETADDR
     messages
     """
-    output = os.path.join(CONF['crawl_dir'], f'nodes_per_getADDR_{date}.gz')
+    output = os.path.join(CONF['crawl_dir'], f'nodes_per_getADDR_{date}.json')
     nodes_per_getaddr = defaultdict(list)
     for nodes_addr in nodes:
         node, addrs = pickle.loads(nodes_addr)
         if addrs is not None:
             nodes_per_getaddr[node].extend(addrs)
     
-    with gzip.GzipFile(output, "w") as f:
-        f.write(json.dumps(nodes_per_getaddr).encode('utf8'))
-        # json.dump(nodes_per_getaddr, f)
-        # writer = csv.writer(f)
-        # for i, (k, v) in enumerate(nodes_per_getaddr.items()):
-        #     writer.writerow([i+1, k, max(v), round(statistics.mean(v)), *v])
+    # with gzip.GzipFile(output, "w") as f:
+    with open(output, "w") as f:
+        # f.write(json.dumps(nodes_per_getaddr).encode('utf8'))
+        writer = csv.writer(f)
+        logging.info(type(list(nodes_per_getaddr.items())[0][0]))
+        logging.info(type(list(nodes_per_getaddr.items())[0][1]))
+        for i, (k, v) in enumerate(nodes_per_getaddr.items()):
+            writer.writerow([i+1, k, len(v)])
     logging.info(f"Wrote {output}")
 
 
@@ -378,13 +380,13 @@ def task():
     Assigned to a worker to retrieve (pop) a node from the crawl set and
     attempt to establish connection with a new node.
     """
-    redis_conn = new_redis_conn(db=CONF['db'])
+    # redis_conn = new_redis_conn(db=CONF['db'])
 
     while True:
         while REDIS_CONN.get('crawl:master:state') != "running":
             gevent.sleep(CONF['socket_timeout'])
 
-        node = redis_conn.spop('pending')  # Pop random node from set
+        node = REDIS_CONN.spop('pending')  # Pop random node from set
         if node is None:
             gevent.sleep(1)
             continue
@@ -402,16 +404,16 @@ def task():
                                                              node[3])
                 REDIS_CONN.sadd('up', node_with_parent)
             continue
-        
+
         # Check if prefix has hit its limit
         if ":" in node[0] and CONF['ipv6_prefix'] < 128:
             cidr = ip_to_network(node[0], CONF['ipv6_prefix'])
-            nodes = redis_conn.incr('crawl:cidr:{}'.format(cidr))
+            nodes = REDIS_CONN.incr('crawl:cidr:{}'.format(cidr))
             if nodes > CONF['nodes_per_ipv6_prefix']:
                 logging.debug("CIDR %s: %d", cidr, nodes)
                 continue
 
-        connect(redis_conn, key)
+        connect(key)
 
 
 def set_pending():

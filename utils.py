@@ -66,3 +66,9 @@ def ip_to_network(address, prefix):
     network = ip_network(str("{}/{}".format(address, prefix)),
                          strict=False)
     return "{}/{}".format(network.network_address, prefix)
+
+
+def serialize_set(obj):
+    if isinstance(obj, set):
+        return list(obj)
+    return obj

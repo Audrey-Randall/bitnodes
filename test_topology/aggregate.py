@@ -65,7 +65,6 @@ def number_new_nodes_in_buckets(files: List[str], perm_nodes: set):
 
 
 if __name__ == "__main__":
-    path = "../test_topology_walle"
     # filenames = [os.path.join(path, f) for f in sorted(os.listdir(path)) if f.endswith('.gz')]
     filenames = [os.path.join(path, f) for f in sorted(os.listdir(path)) if f.endswith('.json')]
     aggregation = aggregate_timestamps(filenames[:60])
