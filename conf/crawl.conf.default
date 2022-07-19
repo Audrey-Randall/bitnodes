@@ -22,7 +22,7 @@ seeders =
     seed.bitnodes.io
 
 # Number of concurrent workers (greenlets)
-workers = 700
+workers = 1
 
 # Print debug output
 debug = False
@@ -40,7 +40,7 @@ protocol_version = 70015
 # crawler. This is so that users will not confuse your crawler with another
 # instance that is already running and generating data for the project.
 # -----------------------------------------------------------------------------
-user_agent = /bitnodes.earn.com:0.1/
+user_agent = /a-measurement-research-project-at.sysnet.ucsd.edu:0.1/
 
 # Services to use for outgoing network address message
 services = 0
@@ -108,7 +108,7 @@ exclude_ipv4_bogons = True
 exclude_ipv6_bogons = False
 
 # Attempt to establish connection with .onion nodes
-onion = True
+onion = False
 
 # Tor proxy is required to connect to .onion address
 tor_proxy = 127.0.0.1:9050

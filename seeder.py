@@ -239,7 +239,7 @@ class Seeder(object):
                         continue
                     network = line.split(";")[0].strip()
                     try:
-                        self.blocklist.add(ip_network(unicode(network)))
+                        self.blocklist.add(ip_network(str(network)))
                     except ValueError:
                         continue
             else:

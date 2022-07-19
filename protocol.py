@@ -147,7 +147,7 @@ import time
 from base64 import b32decode, b32encode
 from binascii import hexlify, unhexlify
 from collections import deque
-from cStringIO import StringIO
+from io import StringIO, BytesIO
 from io import SEEK_CUR
 from operator import itemgetter
 
@@ -256,42 +256,45 @@ class Serializer(object):
         self.required_len = 0
 
     def serialize_msg(self, **kwargs):
-        command = kwargs['command']
+        command = kwargs['command'].encode('utf-8')
         msg = [
             self.magic_number,
-            command + "\x00" * (12 - len(command)),
+            command + b"\x00" * (12 - len(command)),
         ]
 
-        payload = ""
-        if command == "version":
+        print('In serialize_msg, command is:', command)
+        payload = b""
+        if command == b"version":
             to_addr = (self.to_services,) + kwargs['to_addr']
             from_addr = (self.from_services,) + kwargs['from_addr']
             payload = self.serialize_version_payload(to_addr, from_addr)
-        elif command == "ping" or command == "pong":
+        elif command == b"ping" or command == b"pong":
             nonce = kwargs['nonce']
             payload = self.serialize_ping_payload(nonce)
-        elif command == "addr":
+        elif command == b"addr":
             addr_list = kwargs['addr_list']
             payload = self.serialize_addr_payload(addr_list)
-        elif command == "inv" or command == "getdata":
+        elif command == b"inv" or command == b"getdata":
             inventory = kwargs['inventory']
             payload = self.serialize_inv_payload(inventory)
-        elif command == "getblocks" or command == "getheaders":
+        elif command == b"getblocks" or command == b"getheaders":
             block_hashes = kwargs['block_hashes']
             last_block_hash = kwargs['last_block_hash']
             payload = self.serialize_getblocks_payload(block_hashes,
                                                        last_block_hash)
-        elif command == "headers":
+        elif command == b"headers":
             headers = kwargs['headers']
             payload = self.serialize_block_headers_payload(headers)
 
+        if type(payload) == str:
+            payload = payload.encode('utf-8')
         msg.extend([
             struct.pack("<I", len(payload)),
             sha256(sha256(payload))[:4],
             payload,
         ])
 
-        return ''.join(msg)
+        return b''.join(msg)
 
     def deserialize_msg(self, data):
         msg = {}
@@ -301,7 +304,7 @@ class Serializer(object):
             raise HeaderTooShortError("got {} of {} bytes".format(
                 data_len, HEADER_LEN))
 
-        data = StringIO(data)
+        data = BytesIO(data) # try to make a stream out of data
         header = data.read(HEADER_LEN)
         msg.update(self.deserialize_header(header))
 
@@ -316,33 +319,33 @@ class Serializer(object):
             raise InvalidPayloadChecksum("{} != {}".format(
                 hexlify(computed_checksum), hexlify(msg['checksum'])))
 
-        if msg['command'] == "version":
+        if msg['command'] == b"version":
             msg.update(self.deserialize_version_payload(payload))
-        elif msg['command'] == "ping" or msg['command'] == "pong":
+        elif msg['command'] == b"ping" or msg['command'] == b"pong":
             msg.update(self.deserialize_ping_payload(payload))
-        elif msg['command'] == "addr":
+        elif msg['command'] == b"addr":
             msg.update(self.deserialize_addr_payload(payload))
-        elif msg['command'] == "inv":
+        elif msg['command'] == b"inv":
             msg.update(self.deserialize_inv_payload(payload))
-        elif msg['command'] == "tx":
+        elif msg['command'] == b"tx":
             msg.update(self.deserialize_tx_payload(payload))
-        elif msg['command'] == "block":
+        elif msg['command'] == b"block":
             msg.update(self.deserialize_block_payload(payload))
-        elif msg['command'] == "headers":
+        elif msg['command'] == b"headers":
             msg.update(self.deserialize_block_headers_payload(payload))
 
         return (msg, data.read())
 
     def deserialize_header(self, data):
         msg = {}
-        data = StringIO(data)
+        data = BytesIO(data)
 
         msg['magic_number'] = data.read(4)
         if msg['magic_number'] != self.magic_number:
             raise InvalidMagicNumberError("{} != {}".format(
                 hexlify(msg['magic_number']), hexlify(self.magic_number)))
 
-        msg['command'] = data.read(12).strip("\x00")
+        msg['command'] = data.read(12).strip(b"\x00")
         msg['length'] = struct.unpack("<I", data.read(4))[0]
         msg['checksum'] = data.read(4)
 
@@ -360,11 +363,11 @@ class Serializer(object):
             struct.pack("<i", self.height),
             struct.pack("<?", self.relay),
         ]
-        return ''.join(payload)
+        return b''.join(payload)
 
     def deserialize_version_payload(self, data):
         msg = {}
-        data = StringIO(data)
+        data = BytesIO(data)
 
         msg['version'] = unpack("<i", data.read(4))
         if msg['version'] < MIN_PROTOCOL_VERSION:
@@ -394,10 +397,10 @@ class Serializer(object):
         payload = [
             struct.pack("<Q", nonce),
         ]
-        return ''.join(payload)
+        return b''.join(payload)
 
     def deserialize_ping_payload(self, data):
-        data = StringIO(data)
+        data = BytesIO(data)
         nonce = unpack("<Q", data.read(8))
         msg = {
             'nonce': nonce,
@@ -410,15 +413,15 @@ class Serializer(object):
         ]
         payload.extend(
             [self.serialize_network_address(addr) for addr in addr_list])
-        return ''.join(payload)
+        return b''.join(payload)
 
     def deserialize_addr_payload(self, data):
         msg = {}
-        data = StringIO(data)
+        data = BytesIO(data)
 
         msg['count'] = self.deserialize_int(data)
         msg['addr_list'] = []
-        for _ in xrange(msg['count']):
+        for _ in range(msg['count']):
             network_address = self.deserialize_network_address(
                 data, has_timestamp=True)
             msg['addr_list'].append(network_address)
@@ -431,17 +434,17 @@ class Serializer(object):
         ]
         payload.extend(
             [self.serialize_inventory(item) for item in inventory])
-        return ''.join(payload)
+        return b''.join(payload)
 
     def deserialize_inv_payload(self, data):
         msg = {
             'timestamp': int(time.time() * 1000),  # milliseconds
         }
-        data = StringIO(data)
+        data = BytesIO(data)
 
         msg['count'] = self.deserialize_int(data)
         msg['inventory'] = []
-        for _ in xrange(msg['count']):
+        for _ in range(msg['count']):
             inventory = self.deserialize_inventory(data)
             msg['inventory'].append(inventory)
 
@@ -451,21 +454,21 @@ class Serializer(object):
         payload = [
             struct.pack("<I", tx['version']),
             self.serialize_int(tx['tx_in_count']),
-            ''.join([
+            b''.join([
                 self.serialize_tx_in(tx_in) for tx_in in tx['tx_in']
             ]),
             self.serialize_int(tx['tx_out_count']),
-            ''.join([
+            b''.join([
                 self.serialize_tx_out(tx_out) for tx_out in tx['tx_out']
             ]),
             struct.pack("<I", tx['lock_time']),
         ]
-        return ''.join(payload)
+        return b''.join(payload)
 
     def deserialize_tx_payload(self, data):
         msg = {}
         if isinstance(data, str):
-            data = StringIO(data)
+            data = BytesIO(data)
 
         msg['version'] = unpack("<I", data.read(4))
 
@@ -479,18 +482,18 @@ class Serializer(object):
 
         msg['tx_in_count'] = self.deserialize_int(data)
         msg['tx_in'] = []
-        for _ in xrange(msg['tx_in_count']):
+        for _ in range(msg['tx_in_count']):
             tx_in = self.deserialize_tx_in(data)
             msg['tx_in'].append(tx_in)
 
         msg['tx_out_count'] = self.deserialize_int(data)
         msg['tx_out'] = []
-        for _ in xrange(msg['tx_out_count']):
+        for _ in range(msg['tx_out_count']):
             tx_out = self.deserialize_tx_out(data)
             msg['tx_out'].append(tx_out)
 
         if flags != '\x00':
-            for in_num in xrange(msg['tx_in_count']):
+            for in_num in range(msg['tx_in_count']):
                 msg['tx_in'][in_num].update({
                     'wits': self.deserialize_string_vector(data),
                 })
@@ -511,7 +514,7 @@ class Serializer(object):
         # nonce (4 bytes) = 80 bytes
         msg['block_hash'] = hexlify(sha256(sha256(data[:80]))[::-1])
 
-        data = StringIO(data)
+        data = BytesIO(data)
 
         msg['version'] = struct.unpack("<I", data.read(4))[0]
 
@@ -527,7 +530,7 @@ class Serializer(object):
 
         msg['tx_count'] = self.deserialize_int(data)
         msg['tx'] = []
-        for _ in xrange(msg['tx_count']):
+        for _ in range(msg['tx_count']):
             tx_payload = self.deserialize_tx_payload(data)
             msg['tx'].append(tx_payload)
 
@@ -537,11 +540,11 @@ class Serializer(object):
         payload = [
             struct.pack("<i", self.protocol_version),
             self.serialize_int(len(block_hashes)),
-            ''.join(
+            b''.join(
                 [unhexlify(block_hash)[::-1] for block_hash in block_hashes]),
             unhexlify(last_block_hash)[::-1],  # LE -> BE
         ]
-        return ''.join(payload)
+        return b''.join(payload)
 
     def serialize_block_headers_payload(self, headers):
         payload = [
@@ -549,15 +552,15 @@ class Serializer(object):
         ]
         payload.extend(
             [self.serialize_block_header(header) for header in headers])
-        return ''.join(payload)
+        return b''.join(payload)
 
     def deserialize_block_headers_payload(self, data):
         msg = {}
-        data = StringIO(data)
+        data = BytesIO(data)
 
         msg['count'] = self.deserialize_int(data)
         msg['headers'] = []
-        for _ in xrange(msg['count']):
+        for _ in range(msg['count']):
             header = self.deserialize_block_header(data)
             msg['headers'].append(header)
 
@@ -577,7 +580,7 @@ class Serializer(object):
                 ONION_PREFIX + b32decode(ip_address[:-6], True))
         elif "." in ip_address:
             # unused (12 bytes) + ipv4 (4 bytes) = ipv4-mapped ipv6 address
-            unused = "\x00" * 10 + "\xFF" * 2
+            unused = b"\x00" * 10 + b"\xFF" * 2
             network_address.append(
                 unused + socket.inet_pton(socket.AF_INET, ip_address))
         else:
@@ -585,7 +588,7 @@ class Serializer(object):
             network_address.append(
                 socket.inet_pton(socket.AF_INET6, ip_address))
         network_address.append(struct.pack(">H", port))
-        return ''.join(network_address)
+        return b''.join(network_address)
 
     def deserialize_network_address(self, data, has_timestamp=False):
         timestamp = None
@@ -628,7 +631,7 @@ class Serializer(object):
             struct.pack("<I", inv_type),
             unhexlify(inv_hash)[::-1],  # LE -> BE
         ]
-        return ''.join(payload)
+        return b''.join(payload)
 
     def deserialize_inventory(self, data):
         inv_type = unpack("<I", data.read(4))
@@ -646,7 +649,7 @@ class Serializer(object):
             tx_in['script'],
             struct.pack("<I", tx_in['sequence']),
         ]
-        return ''.join(payload)
+        return b''.join(payload)
 
     def deserialize_tx_in(self, data):
         prev_out_hash = data.read(32)[::-1]  # BE -> LE
@@ -668,7 +671,7 @@ class Serializer(object):
             self.serialize_int(tx_out['script_length']),
             tx_out['script'],
         ]
-        return ''.join(payload)
+        return b''.join(payload)
 
     def deserialize_tx_out(self, data):
         value = unpack("<q", data.read(8))
@@ -690,12 +693,12 @@ class Serializer(object):
             struct.pack("<I", header['nonce']),
             self.serialize_int(0),
         ]
-        return ''.join(payload)
+        return b''.join(payload)
 
     def deserialize_block_header(self, data):
         header = data.read(80)
         block_hash = sha256(sha256(header))[::-1]  # BE -> LE
-        header = StringIO(header)
+        header = BytesIO(header)
         version = struct.unpack("<i", header.read(4))[0]
         prev_block_hash = header.read(32)[::-1]  # BE -> LE
         merkle_root = header.read(32)[::-1]  # BE -> LE
@@ -718,24 +721,27 @@ class Serializer(object):
         payload = [
             self.serialize_int(len(data)),
         ] + [self.serialize_string(item) for item in data]
-        return ''.join(payload)
+        return b''.join(payload)
 
     def deserialize_string_vector(self, data):
         items = []
         count = self.deserialize_int(data)
-        for _ in xrange(count):
+        for _ in range(count):
             items.append(self.deserialize_string(data))
         return items
 
     def serialize_string(self, data):
         length = len(data)
+        to_return = b''
         if length < 0xFD:
-            return chr(length) + data
+            to_return = chr(length) + data
         elif length <= 0xFFFF:
-            return chr(0xFD) + struct.pack("<H", length) + data
+            to_return = chr(0xFD) + struct.pack("<H", length) + data
         elif length <= 0xFFFFFFFF:
-            return chr(0xFE) + struct.pack("<I", length) + data
-        return chr(0xFF) + struct.pack("<Q", length) + data
+            to_return = chr(0xFE) + struct.pack("<I", length) + data
+        else:
+            to_return = chr(0xFF) + struct.pack("<Q", length) + data
+        return to_return.encode('utf-8')
 
     def deserialize_string(self, data):
         length = self.deserialize_int(data)
@@ -800,7 +806,7 @@ class Connection(object):
                         "{} closed connection".format(self.to_addr))
                 chunks.append(chunk)
                 length -= len(chunk)
-            data = ''.join(chunks)
+            data = b''.join(chunks)
         else:
             data = self.socket.recv(SOCKET_BUFSIZE)
             if not data:
@@ -822,9 +828,11 @@ class Connection(object):
                 data += self.recv(
                     length=self.serializer.required_len - len(data))
                 (msg, data) = self.serializer.deserialize_msg(data)
-            if msg.get('command') == "ping":
+            print('In get_messages, msg.get(command) is:', msg.get('command'))
+            if msg.get('command') == b"ping":
+                print('Nonce in msg?', msg.keys())
                 self.pong(msg['nonce'])  # respond to ping immediately
-            elif msg.get('command') == "version":
+            elif msg.get('command') == b"version":
                 self.verack()  # respond to version immediately
             msgs.append(msg)
         if len(msgs) > 0 and commands:
@@ -840,11 +848,12 @@ class Connection(object):
         # [version] >>>
         msg = self.serializer.serialize_msg(
             command="version", to_addr=self.to_addr, from_addr=self.from_addr)
+        print('Message is:', msg)
         self.send(msg)
 
         # <<< [version 124 bytes] [verack 24 bytes]
         gevent.sleep(1)
-        msgs = self.get_messages(length=148, commands=["version", "verack"])
+        msgs = self.get_messages(length=148, commands=[b"version", b"verack"])
         if len(msgs) > 0:
             msgs[:] = sorted(msgs, key=itemgetter('command'), reverse=True)
             self.set_min_version(msgs[0])

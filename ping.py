@@ -298,7 +298,7 @@ def cron(pool):
 
             set_bestblockhash()
 
-        for _ in xrange(min(REDIS_CONN.scard('reachable'), pool.free_count())):
+        for _ in range(min(REDIS_CONN.scard('reachable'), pool.free_count())):
             pool.spawn(task)
 
         workers = CONF['workers'] - pool.free_count()

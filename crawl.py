@@ -45,7 +45,7 @@ import time
 from base64 import b32decode
 from binascii import hexlify, unhexlify
 from collections import Counter
-from ConfigParser import ConfigParser
+from configparser import ConfigParser
 from geoip2.errors import AddressNotFoundError
 from ipaddress import ip_address, ip_network
 
@@ -64,7 +64,7 @@ REDIS_CONN = None
 CONF = {}
 
 # MaxMind databases
-ASN = geoip2.database.Reader("geoip/GeoLite2-ASN.mmdb")
+# ASN = geoip2.database.Reader("geoip/GeoLite2-ASN.mmdb")
 
 
 def enumerate_node(redis_pipe, addr_msgs, now):
@@ -135,9 +135,11 @@ def connect(redis_conn, key):
     try:
         logging.debug("Connecting to %s", conn.to_addr)
         conn.open()
+        logging.debug('Connection opened. Performing handshake...')
         handshake_msgs = conn.handshake()
+        #print('Handshake messages:', handshake_msgs) # List of dicts, for example: [{'magic_number': b'\xf9\xbe\xb4\xd9', 'command': b'version', 'length': 103, 'checksum': b'-\xc6kR'}, {'magic_number': b'\xf9\xbe\xb4\xd9', 'command': b'verack', 'length': 0, 'checksum': b']\xf6\xe0\xe2'}]
     except (ProtocolError, ConnectionError, socket.error) as err:
-        logging.debug("%s: %s", conn.to_addr, err)
+        logging.debug("Error making handshake to %s. Error: %s %s", conn.to_addr, err, type(err))
 
     redis_pipe = redis_conn.pipeline()
     if len(handshake_msgs) > 0:
@@ -268,6 +270,9 @@ def cron():
         logging.info("Pending: %d", pending_nodes)
 
         if pending_nodes == 0:
+            logging.debug('Pending nodes is zero, cron worker is waiting then returning.')
+            gevent.sleep(CONF['cron_delay'])
+            return
             REDIS_CONN.set('crawl:master:state', "starting")
             now = int(time.time())
             elapsed = now - start
@@ -289,18 +294,22 @@ def task():
     attempt to establish connection with a new node.
     """
     redis_conn = new_redis_conn(db=CONF['db'])
+    logging.debug('Start of task()')
 
     while True:
         if not CONF['master']:
-            while REDIS_CONN.get('crawl:master:state') != "running":
+            while REDIS_CONN.get('crawl:master:state') != b"running":
+                logging.debug('Sleeping for <timeout> because state is %s (should be "running")', REDIS_CONN.get('crawl:master:state'))
                 gevent.sleep(CONF['socket_timeout'])
 
         node = redis_conn.spop('pending')  # Pop random node from set
+        logging.debug('Node: %s', node)
         if node is None:
             gevent.sleep(1)
             continue
 
         node = eval(node)  # Convert string from Redis to tuple
+        logging.debug('Node[0] is: %s', node[0])
 
         # Skip IPv6 node
         if ":" in node[0] and not CONF['ipv6']:
@@ -319,6 +328,7 @@ def task():
                 continue
 
         connect(redis_conn, key)
+        logging.debug('end of task()')
 
 
 def set_pending():
@@ -349,13 +359,17 @@ def set_pending():
             if is_excluded(address):
                 logging.debug("Exclude: %s", address)
                 continue
-            logging.debug("%s: %s", seeder, address)
+            # logging.debug("%s: %s", seeder, address)
             REDIS_CONN.sadd('pending', (address, CONF['port'], TO_SERVICES))
 
     if CONF['onion']:
         for address in CONF['onion_nodes']:
             REDIS_CONN.sadd('pending', (address, CONF['port'], TO_SERVICES))
 
+def set_pending_mock():
+    address = '132.239.10.127' # <-- Alex's node's addr
+    REDIS_CONN.sadd('pending', (address, CONF['port'], TO_SERVICES))
+    logging.debug("Adding test IP to pending set: %s", address)
 
 def is_excluded(address):
     """
@@ -363,7 +377,7 @@ def is_excluded(address):
     """
     if address.endswith(".onion"):
         address = onion_to_ipv6(address)
-    elif ip_address(unicode(address)).is_private:
+    elif ip_address(str(address)).is_private:
         return True
 
     if ":" in address:
@@ -373,12 +387,12 @@ def is_excluded(address):
         address_family = socket.AF_INET
         key = 'exclude_ipv4_networks'
 
-    try:
-        asn_record = ASN.asn(address)
-    except AddressNotFoundError:
-        asn = None
-    else:
-        asn = 'AS{}'.format(asn_record.autonomous_system_number)
+    # try:
+    #     asn_record = ASN.asn(address)
+    # except AddressNotFoundError:
+    #     asn = None
+    # else:
+    #     asn = 'AS{}'.format(asn_record.autonomous_system_number)
 
     try:
         addr = int(hexlify(socket.inet_pton(address_family, address)), 16)
@@ -389,8 +403,8 @@ def is_excluded(address):
     if any([(addr & net[1] == net[0]) for net in CONF[key]]):
         return True
 
-    if asn and asn in CONF['exclude_asns']:
-        return True
+    # if asn and asn in CONF['exclude_asns']:
+    #     return True
 
     return False
 
@@ -408,13 +422,14 @@ def list_excluded_networks(txt, networks=None):
     Converts list of networks from configuration file into a list of tuples of
     network address and netmask to be excluded from the crawl.
     """
+    txt = str(txt)
     if networks is None:
         networks = set()
-    lines = txt.strip().split("\n")
+    lines = txt.strip().split('\n')
     for line in lines:
         line = line.split('#')[0].strip()
         try:
-            network = ip_network(unicode(line))
+            network = ip_network(str(line))
         except ValueError:
             continue
         else:
@@ -530,6 +545,7 @@ def main(argv):
     # Initialize logger
     loglevel = logging.INFO
     if CONF['debug']:
+        print('Log level is DEBUG')
         loglevel = logging.DEBUG
 
     logformat = ("[%(process)d] %(asctime)s,%(msecs)05.1f %(levelname)s "
@@ -546,6 +562,7 @@ def main(argv):
     if CONF['master']:
         REDIS_CONN.set('crawl:master:state', "starting")
         logging.info("Removing all keys")
+        print('removing keys')
         redis_pipe = REDIS_CONN.pipeline()
         redis_pipe.delete('up')
         for key in get_keys(REDIS_CONN, 'node:*'):
@@ -554,15 +571,19 @@ def main(argv):
             redis_pipe.delete(key)
         redis_pipe.delete('pending')
         redis_pipe.execute()
-        set_pending()
+        # set_pending()
+        set_pending_mock()
         update_excluded_networks()
         REDIS_CONN.set('crawl:master:state', "running")
 
     # Spawn workers (greenlets) including one worker reserved for cron tasks
     workers = []
     if CONF['master']:
+        print('Spawned master')
         workers.append(gevent.spawn(cron))
-    for _ in xrange(CONF['workers'] - len(workers)):
+    for _ in range(CONF['workers'] - len(workers)):
+        logging.info('Spawned worker')
+        print('Spawned workers')
         workers.append(gevent.spawn(task))
     logging.info("Workers: %d", len(workers))
     gevent.joinall(workers)
