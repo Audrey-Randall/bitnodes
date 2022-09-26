@@ -74,13 +74,17 @@ def enumerate_node(redis_pipe, addr_msgs, now):
     peers = 0
     excluded = 0
 
+    logging.debug('Num addr_msgs is: %d', len(addr_msgs))
+    # logging.debug('First addr msg: %s', addr_msgs[0])
     for addr_msg in addr_msgs:
         if 'addr_list' in addr_msg:
             for peer in addr_msg['addr_list']:
                 age = now - peer['timestamp']  # seconds
+                # logging.debug('Peer age: %s', age)
 
                 if age >= 0 and age <= CONF['max_age']:
                     address = peer['ipv4'] or peer['ipv6'] or peer['onion']
+                    logging.debug('Address: %s', address)
                     port = peer['port'] if peer['port'] > 0 else CONF['port']
                     services = peer['services']
                     if not address:
@@ -135,27 +139,27 @@ def connect(redis_conn, key):
     try:
         logging.debug("Connecting to %s", conn.to_addr)
         conn.open()
-        logging.debug('Connection opened. Performing handshake...')
-        handshake_msgs = conn.handshake()
-        #print('Handshake messages:', handshake_msgs) # List of dicts, for example: [{'magic_number': b'\xf9\xbe\xb4\xd9', 'command': b'version', 'length': 103, 'checksum': b'-\xc6kR'}, {'magic_number': b'\xf9\xbe\xb4\xd9', 'command': b'verack', 'length': 0, 'checksum': b']\xf6\xe0\xe2'}]
+        handshake_msgs = conn.handshake()  # Sends version, receives version and verack
+        logging.debug('Finished processing handshake messages.')
+
     except (ProtocolError, ConnectionError, socket.error) as err:
         logging.debug("Error making handshake to %s. Error: %s %s", conn.to_addr, err, type(err))
 
     redis_pipe = redis_conn.pipeline()
     if len(handshake_msgs) > 0:
         try:
-            conn.getaddr(block=False)
+            conn.getaddr(block=False) # Send the getaddr message and wait for addr messages to be sent in return
         except (ProtocolError, ConnectionError, socket.error) as err:
-            logging.debug("%s: %s", conn.to_addr, err)
+            logging.debug("Error in conn.getaddr: %s: %s", conn.to_addr, err)
         else:
             addr_wait = 0
             while addr_wait < CONF['socket_timeout']:
                 addr_wait += 1
                 gevent.sleep(0.3)
                 try:
-                    msgs = conn.get_messages(commands=['addr'])
+                    msgs = conn.get_messages(commands=[b'addr'])
                 except (ProtocolError, ConnectionError, socket.error) as err:
-                    logging.debug("%s: %s", conn.to_addr, err)
+                    logging.debug("No 'addr' messages received in response to 'getaddr', %s: %s", conn.to_addr, err)
                     break
                 if msgs and any([msg['count'] > 1 for msg in msgs]):
                     addr_msgs = msgs
@@ -176,9 +180,19 @@ def connect(redis_conn, key):
                       conn.to_addr, peers, excluded)
         redis_pipe.set(key, "")
         redis_pipe.sadd('up', key)
+    
+        # Now try sending mempool and getblocks to get the txn lists from a node.
+        get_txns(conn)
+    
     conn.close()
     redis_pipe.execute()
 
+def get_txns(conn):
+    logging.debug("Sending getblocks, expecting inv")
+    blocks = conn.getheaders([b'00000000000000000004084c44901a5dfaa0d136f9d0b5d42fb886aab024bc6d'])
+    for b in blocks:
+        print(b)
+    logging.debug("Finished printing blocks")
 
 def dump(timestamp, nodes):
     """
@@ -271,7 +285,8 @@ def cron():
 
         if pending_nodes == 0:
             logging.debug('Pending nodes is zero, cron worker is waiting then returning.')
-            gevent.sleep(CONF['cron_delay'])
+            gevent.sleep(1000)
+            logging.debug('Slept for 1000 seconds?')
             return
             REDIS_CONN.set('crawl:master:state', "starting")
             now = int(time.time())
@@ -303,13 +318,11 @@ def task():
                 gevent.sleep(CONF['socket_timeout'])
 
         node = redis_conn.spop('pending')  # Pop random node from set
-        logging.debug('Node: %s', node)
         if node is None:
             gevent.sleep(1)
             continue
 
         node = eval(node)  # Convert string from Redis to tuple
-        logging.debug('Node[0] is: %s', node[0])
 
         # Skip IPv6 node
         if ":" in node[0] and not CONF['ipv6']:
@@ -367,9 +380,10 @@ def set_pending():
             REDIS_CONN.sadd('pending', (address, CONF['port'], TO_SERVICES))
 
 def set_pending_mock():
-    address = '132.239.10.127' # <-- Alex's node's addr
-    REDIS_CONN.sadd('pending', (address, CONF['port'], TO_SERVICES))
-    logging.debug("Adding test IP to pending set: %s", address)
+    addresses = ['169.228.66.83'] #['15.161.132.203', '13.229.131.185', '206.223.153.52', '68.102.134.227'] #  '132.239.10.127' # 
+    for address in addresses:
+        REDIS_CONN.sadd('pending', (address, CONF['port'], TO_SERVICES))
+        logging.debug("Adding test IP to pending set: %s", address)
 
 def is_excluded(address):
     """

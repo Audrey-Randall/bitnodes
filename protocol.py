@@ -256,13 +256,12 @@ class Serializer(object):
         self.required_len = 0
 
     def serialize_msg(self, **kwargs):
-        command = kwargs['command'].encode('utf-8')
+        command = kwargs['command']
         msg = [
             self.magic_number,
             command + b"\x00" * (12 - len(command)),
         ]
 
-        print('In serialize_msg, command is:', command)
         payload = b""
         if command == b"version":
             to_addr = (self.to_services,) + kwargs['to_addr']
@@ -280,14 +279,13 @@ class Serializer(object):
         elif command == b"getblocks" or command == b"getheaders":
             block_hashes = kwargs['block_hashes']
             last_block_hash = kwargs['last_block_hash']
-            payload = self.serialize_getblocks_payload(block_hashes,
-                                                       last_block_hash)
+            payload = self.serialize_getblocks_payload(block_hashes, last_block_hash)
         elif command == b"headers":
             headers = kwargs['headers']
             payload = self.serialize_block_headers_payload(headers)
+        # elif command == b"getblocks":
 
-        if type(payload) == str:
-            payload = payload.encode('utf-8')
+
         msg.extend([
             struct.pack("<I", len(payload)),
             sha256(sha256(payload))[:4],
@@ -352,6 +350,8 @@ class Serializer(object):
         return msg
 
     def serialize_version_payload(self, to_addr, from_addr):
+        # first arg is format identifiers: https://docs.python.org/3.7/library/struct.html#format-characters
+        # < means little-endian. i = int, Q = unsigned long long, q = long long, ? = bool
         payload = [
             struct.pack("<i", self.protocol_version),
             struct.pack("<Q", self.from_services),
@@ -828,9 +828,7 @@ class Connection(object):
                 data += self.recv(
                     length=self.serializer.required_len - len(data))
                 (msg, data) = self.serializer.deserialize_msg(data)
-            print('In get_messages, msg.get(command) is:', msg.get('command'))
             if msg.get('command') == b"ping":
-                print('Nonce in msg?', msg.keys())
                 self.pong(msg['nonce'])  # respond to ping immediately
             elif msg.get('command') == b"version":
                 self.verack()  # respond to version immediately
@@ -842,13 +840,12 @@ class Connection(object):
     def set_min_version(self, version):
         self.serializer.protocol_version = min(
             self.serializer.protocol_version,
-            version.get('version', PROTOCOL_VERSION))
+            version.get(b'version', PROTOCOL_VERSION))
 
     def handshake(self):
         # [version] >>>
         msg = self.serializer.serialize_msg(
-            command="version", to_addr=self.to_addr, from_addr=self.from_addr)
-        print('Message is:', msg)
+            command=b"version", to_addr=self.to_addr, from_addr=self.from_addr)
         self.send(msg)
 
         # <<< [version 124 bytes] [verack 24 bytes]
@@ -861,12 +858,12 @@ class Connection(object):
 
     def verack(self):
         # [verack] >>>
-        msg = self.serializer.serialize_msg(command="verack")
+        msg = self.serializer.serialize_msg(command=b"verack")
         self.send(msg)
 
     def getaddr(self, block=True):
         # [getaddr] >>>
-        msg = self.serializer.serialize_msg(command="getaddr")
+        msg = self.serializer.serialize_msg(command=b"getaddr")
         self.send(msg)
 
         # Caller should call get_messages separately.
@@ -875,14 +872,14 @@ class Connection(object):
 
         # <<< [addr]..
         gevent.sleep(1)
-        msgs = self.get_messages(commands=["addr"])
+        msgs = self.get_messages(commands=[b"addr"])
         return msgs
 
     def addr(self, addr_list):
         # addr_list = [(TIMESTAMP, SERVICES, "IP_ADDRESS", PORT),]
         # [addr] >>>
         msg = self.serializer.serialize_msg(
-            command="addr", addr_list=addr_list)
+            command=b"addr", addr_list=addr_list)
         self.send(msg)
 
     def ping(self, nonce=None):
@@ -890,12 +887,12 @@ class Connection(object):
             nonce = random.getrandbits(64)
 
         # [ping] >>>
-        msg = self.serializer.serialize_msg(command="ping", nonce=nonce)
+        msg = self.serializer.serialize_msg(command=b"ping", nonce=nonce)
         self.send(msg)
 
     def pong(self, nonce):
         # [pong] >>>
-        msg = self.serializer.serialize_msg(command="pong", nonce=nonce)
+        msg = self.serializer.serialize_msg(command=b"pong", nonce=nonce)
         self.send(msg)
 
     def inv(self, inventory):
@@ -909,12 +906,12 @@ class Connection(object):
         # inventory = [(INV_TYPE, "INV_HASH"),]
         # [getdata] >>>
         msg = self.serializer.serialize_msg(
-            command="getdata", inventory=inventory)
+            command=b"getdata", inventory=inventory)
         self.send(msg)
 
         # <<< [tx] [block]..
         gevent.sleep(1)
-        msgs = self.get_messages(commands=["tx", "block"])
+        msgs = self.get_messages(commands=[b"tx", b"block"])
         return msgs
 
     def getblocks(self, block_hashes, last_block_hash=None):
@@ -923,30 +920,31 @@ class Connection(object):
 
         # block_hashes = ["BLOCK_HASH",]
         # [getblocks] >>>
-        msg = self.serializer.serialize_msg(command="getblocks",
+        msg = self.serializer.serialize_msg(command=b"getblocks",
                                             block_hashes=block_hashes,
                                             last_block_hash=last_block_hash)
         self.send(msg)
 
         # <<< [inv]..
         gevent.sleep(1)
-        msgs = self.get_messages(commands=["inv"])
+        msgs = self.get_messages(commands=[b"inv"])
         return msgs
 
     def getheaders(self, block_hashes, last_block_hash=None):
         if last_block_hash is None:
-            last_block_hash = "0" * 64
+            last_block_hash = b"0" * 64
 
         # block_hashes = ["BLOCK_HASH",]
         # [getheaders] >>>
-        msg = self.serializer.serialize_msg(command="getheaders",
+        msg = self.serializer.serialize_msg(command=b"getheaders",
                                             block_hashes=block_hashes,
                                             last_block_hash=last_block_hash)
+        
         self.send(msg)
 
         # <<< [headers]..
         gevent.sleep(1)
-        msgs = self.get_messages(commands=["headers"])
+        msgs = self.get_messages(commands=[b"headers"])
         return msgs
 
     def headers(self, headers):
@@ -959,7 +957,7 @@ class Connection(object):
         #   'nonce': NONCE
         # },]
         # [headers] >>>
-        msg = self.serializer.serialize_msg(command="headers", headers=headers)
+        msg = self.serializer.serialize_msg(command=b"headers", headers=headers)
         self.send(msg)
 
 
