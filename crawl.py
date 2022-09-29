@@ -48,6 +48,7 @@ from collections import Counter
 from configparser import ConfigParser
 from geoip2.errors import AddressNotFoundError
 from ipaddress import ip_address, ip_network
+import subprocess 
 
 from protocol import (
     ONION_PREFIX,
@@ -188,11 +189,31 @@ def connect(redis_conn, key):
     redis_pipe.execute()
 
 def get_txns(conn):
-    logging.debug("Sending getblocks, expecting inv")
-    blocks = conn.getheaders([b'00000000000000000004084c44901a5dfaa0d136f9d0b5d42fb886aab024bc6d'])
-    for b in blocks:
-        print(b)
-    logging.debug("Finished printing blocks")
+    logging.debug("Sending getheaders, expecting headers")
+    best_blockhash = subprocess.check_output(['bitcoin-cli', '-conf=/data/bitcoin.conf', 'getbestblockhash']).rstrip()
+    headers = conn.getheaders([best_blockhash])
+    if len(headers) > 0:
+        logging.debug('Got headers, sending getblocks, expecting inv')
+    else:
+        logging.debug('Did not receive headers.')
+        return
+    hashes = []
+    logging.debug('Length of headers: %i, type of headers: %s', len(headers), type(headers))
+    # logging.debug('Contents of headers[0]: %s', headers[0])
+    for header_msg in headers:
+        logging.debug('Header_msg: %s', header_msg)
+        for header in header_msg['headers']:
+            try:
+                logging.debug('Block hash: %s', header['block_hash'])
+                hashes.append(header['block_hash'])
+            except:
+                logging.debug('Error getting block hash, header_msg was: %s', header_msg)
+                return
+    logging.debug('hashes? %i', len(hashes))
+    inv = conn.getblocks(hashes)
+    for i in inv:
+        logging.debug('%s', i)
+    logging.debug("Finished printing inv")
 
 def dump(timestamp, nodes):
     """
@@ -302,6 +323,17 @@ def cron():
 
         gevent.sleep(CONF['cron_delay'])
 
+
+def task_mock():
+    redis_conn = new_redis_conn(db=CONF['db'])
+    node = b"('169.228.66.83', 8333, 1)"
+    logging.debug('Redis node: %s', node)
+    node = eval(node)  # Convert string from Redis to tuple
+
+    key = "node:{}-{}-{}".format(node[0], node[1], node[2])
+
+    connect(redis_conn, key)
+    logging.debug('end of task_mock()')
 
 def task():
     """
@@ -598,7 +630,7 @@ def main(argv):
     for _ in range(CONF['workers'] - len(workers)):
         logging.info('Spawned worker')
         print('Spawned workers')
-        workers.append(gevent.spawn(task))
+        workers.append(gevent.spawn(task_mock))
     logging.info("Workers: %d", len(workers))
     gevent.joinall(workers)
 

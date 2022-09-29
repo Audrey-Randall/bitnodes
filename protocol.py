@@ -749,12 +749,12 @@ class Serializer(object):
 
     def serialize_int(self, length):
         if length < 0xFD:
-            return chr(length)
+            return chr(length).encode('utf-8')
         elif length <= 0xFFFF:
-            return chr(0xFD) + struct.pack("<H", length)
+            return chr(0xFD).encode('utf-8') + struct.pack("<H", length)
         elif length <= 0xFFFFFFFF:
-            return chr(0xFE) + struct.pack("<I", length)
-        return chr(0xFF) + struct.pack("<Q", length)
+            return chr(0xFE).encode('utf-8') + struct.pack("<I", length)
+        return chr(0xFF).encode('utf-8') + struct.pack("<Q", length)
 
     def deserialize_int(self, data):
         length = unpack("<B", data.read(1))

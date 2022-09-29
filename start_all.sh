@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Start bitcoind
-bitcoind -daemon -datadir=/data -conf=/data/bitcoin.conf
-sleep 3
+# Remove debug log
+
 
 # Start Bitnodes
+echo "Starting Bitnodes"
 ./start.sh
