@@ -150,6 +150,7 @@ from collections import deque
 from io import StringIO, BytesIO
 from io import SEEK_CUR
 from operator import itemgetter
+import binascii
 
 MAGIC_NUMBER = "\xF9\xBE\xB4\xD9"
 PORT = 8333
@@ -544,6 +545,8 @@ class Serializer(object):
                 [unhexlify(block_hash)[::-1] for block_hash in block_hashes]),
             unhexlify(last_block_hash)[::-1],  # LE -> BE
         ]
+        for i in payload:
+            print(type(i))
         return b''.join(payload)
 
     def serialize_block_headers_payload(self, headers):
@@ -833,6 +836,9 @@ class Connection(object):
             elif msg.get('command') == b"version":
                 self.verack()  # respond to version immediately
             msgs.append(msg)
+        print('Received messages of type:')
+        for m in msgs:
+            print('\t', m.get('command'))
         if len(msgs) > 0 and commands:
             msgs[:] = [m for m in msgs if m.get('command') in commands]
         return msgs
@@ -911,12 +917,12 @@ class Connection(object):
 
         # <<< [tx] [block]..
         gevent.sleep(1)
-        msgs = self.get_messages(commands=[b"tx", b"block"])
+        msgs = self.get_messages(commands=[b"tx", b"block", b"inv"])
         return msgs
 
     def getblocks(self, block_hashes, last_block_hash=None):
         if last_block_hash is None:
-            last_block_hash = "0" * 64
+            last_block_hash = b"0" * 64
 
         # block_hashes = ["BLOCK_HASH",]
         # [getblocks] >>>
@@ -940,6 +946,7 @@ class Connection(object):
                                             block_hashes=block_hashes,
                                             last_block_hash=last_block_hash)
         
+        print(binascii.hexlify(msg))
         self.send(msg)
 
         # <<< [headers]..

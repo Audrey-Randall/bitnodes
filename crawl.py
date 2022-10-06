@@ -188,32 +188,51 @@ def connect(redis_conn, key):
     conn.close()
     redis_pipe.execute()
 
+def get_recent_blockhashes():
+    blockhashes = subprocess.check_output(['./get_recent_blockhashes.sh']).split(b'\n')[:-1]
+    return blockhashes
+
 def get_txns(conn):
     logging.debug("Sending getheaders, expecting headers")
-    best_blockhash = subprocess.check_output(['bitcoin-cli', '-conf=/data/bitcoin.conf', 'getbestblockhash']).rstrip()
-    headers = conn.getheaders([best_blockhash])
-    if len(headers) > 0:
-        logging.debug('Got headers, sending getblocks, expecting inv')
+    print('Sending getheaders')
+    blockhashes = get_recent_blockhashes()
+    headers = conn.getheaders(blockhashes, last_block_hash=blockhashes[0])
+    if len(headers) >= 1:
+        logging.debug('Got %d headers, sending getblocks, expecting inv', len(headers))
+        print('Sending getblocks')
     else:
         logging.debug('Did not receive headers.')
         return
     hashes = []
-    logging.debug('Length of headers: %i, type of headers: %s', len(headers), type(headers))
-    # logging.debug('Contents of headers[0]: %s', headers[0])
     for header_msg in headers:
-        logging.debug('Header_msg: %s', header_msg)
         for header in header_msg['headers']:
             try:
-                logging.debug('Block hash: %s', header['block_hash'])
                 hashes.append(header['block_hash'])
+                logging.debug('Header hash: %s', header['block_hash'])
             except:
                 logging.debug('Error getting block hash, header_msg was: %s', header_msg)
                 return
-    logging.debug('hashes? %i', len(hashes))
-    inv = conn.getblocks(hashes)
-    for i in inv:
-        logging.debug('%s', i)
-    logging.debug("Finished printing inv")
+    logging.debug('Number of hashes: %d. ', len(hashes))
+    if len(hashes) == 0:
+        logging.debug('No new hashes received, exiting get_txns')
+        return
+    inv_msgs = conn.getblocks(hashes)
+    inventory = []
+    for inv_msg in inv_msgs:
+        for i in inv_msg['inventory']:
+            inventory.append((i['type'], i['hash']))
+    
+    # Have to send getdata() so I can see which txns are in each block I think. 
+    # Probably don't have to send getdata() for inv responses to mempool() msgs, I think all we need is the txns.
+    inventory = inventory[:127]
+    logging.debug('Received inv (length %i), sending getdata()', len(inventory))
+    print('Sending getdata')
+    block_msgs = conn.getdata(inventory)
+    logging.debug('Number of block messages: %s', len(block_msgs))
+    for block_msg in block_msgs:
+        logging.debug('block: %s', block_msg)
+
+    logging.debug("Exiting get_txns")
 
 def dump(timestamp, nodes):
     """
